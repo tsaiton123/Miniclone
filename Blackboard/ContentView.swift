@@ -1,29 +1,23 @@
-//
-//  ContentView.swift
-//  Blackboard
-//
-//  Created by 蔡昀彤 on 11/30/25.
-//
-
 import SwiftUI
 import SwiftData
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
+    @Query private var items: [NoteItem]
+    @State private var selectedItem: NoteItem?
+    @State private var columnVisibility = NavigationSplitViewVisibility.all
 
     var body: some View {
-        NavigationSplitView {
-            List {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            List(selection: $selectedItem) {
                 ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
+                    NavigationLink(value: item) {
+                        Text(item.title)
                     }
                 }
                 .onDelete(perform: deleteItems)
             }
+            .navigationTitle("Notes")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     EditButton()
@@ -35,14 +29,21 @@ struct ContentView: View {
                 }
             }
         } detail: {
-            Text("Select an item")
+            if let item = selectedItem {
+                BlackboardView(note: item)
+                    .id(item.id) // Force refresh when switching
+            } else {
+                Text("Select a note")
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
     private func addItem() {
         withAnimation {
-            let newItem = Item(timestamp: Date())
+            let newItem = NoteItem(title: "New Note")
             modelContext.insert(newItem)
+            selectedItem = newItem
         }
     }
 
@@ -53,9 +54,4 @@ struct ContentView: View {
             }
         }
     }
-}
-
-#Preview {
-    ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
 }

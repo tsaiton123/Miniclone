@@ -1,0 +1,129 @@
+import SwiftUI
+
+struct CanvasElementView: View {
+    let element: CanvasElementData
+    let isSelected: Bool
+    var onDelete: () -> Void
+    var isEditing: Bool = false
+    var onTextChange: ((String) -> Void)? = nil
+    
+    @State private var editedText: String = ""
+    @FocusState private var isFocused: Bool
+    
+    var body: some View {
+        ZStack {
+            switch element.data {
+            case .text(let data):
+                if isEditing {
+                    TextField("", text: $editedText)
+                        .font(.custom(data.fontFamily, size: data.fontSize))
+                        .foregroundColor(Color(hex: data.color))
+                        .textFieldStyle(.plain)
+                        .focused($isFocused)
+                        .onSubmit {
+                            onTextChange?(editedText)
+                        }
+                        .onAppear {
+                            editedText = data.text
+                            isFocused = true
+                        }
+                        .onChange(of: isEditing) { newValue in
+                            if !newValue {
+                                onTextChange?(editedText)
+                            } else {
+                                isFocused = true
+                            }
+                        }
+                } else {
+                    Text(data.text)
+                        .font(.custom(data.fontFamily, size: data.fontSize))
+                        .foregroundColor(Color(hex: data.color))
+                }
+            
+            case .graph(let data):
+                GraphShape(data: data)
+                    .stroke(Color(hex: data.color), lineWidth: 2)
+                    .background(Color.white.opacity(0.1)) // Touch target
+                    .clipShape(Rectangle())
+                    .overlay(
+                        Rectangle()
+                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                    )
+                    .overlay(
+                        Text(data.expression)
+                            .font(.caption)
+                            .padding(4)
+                            .background(Color.black.opacity(0.7))
+                            .foregroundColor(.white)
+                            .cornerRadius(4)
+                            .offset(y: -element.height/2 - 20)
+                    )
+            
+            case .image(let data):
+                // Placeholder for Image View
+                Rectangle()
+                    .fill(Color.gray.opacity(0.2))
+                    .overlay(Text("Image"))
+                
+            case .stroke(let data):
+                // Placeholder for Stroke View
+                Path { path in
+                    guard let first = data.points.first else { return }
+                    path.move(to: CGPoint(x: first.x, y: first.y))
+                    for point in data.points.dropFirst() {
+                        path.addLine(to: CGPoint(x: point.x, y: point.y))
+                    }
+                }
+                .stroke(Color(hex: data.color), style: StrokeStyle(lineWidth: data.width, lineCap: .round, lineJoin: .round))
+            }
+        }
+        .frame(width: element.width, height: element.height)
+        .position(x: element.x + element.width/2, y: element.y + element.height/2)
+        .overlay(
+            isSelected ? 
+            ZStack(alignment: .topLeading) {
+                Rectangle()
+                    .stroke(Color.blue, style: StrokeStyle(lineWidth: 2, dash: [5]))
+                
+                // Delete Button
+                Button(action: onDelete) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.red)
+                        .background(Color.white.clipShape(Circle()))
+                }
+                .offset(x: -10, y: -10)
+            }
+            .frame(width: element.width + 10, height: element.height + 10)
+            .position(x: element.x + element.width/2, y: element.y + element.height/2)
+            : nil
+        )
+    }
+}
+
+// Helper for Hex Color
+extension Color {
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let a, r, g, b: UInt64
+        switch hex.count {
+        case 3: // RGB (12-bit)
+            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6: // RGB (24-bit)
+            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8: // ARGB (32-bit)
+            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default:
+            (a, r, g, b) = (1, 1, 1, 0)
+        }
+
+        self.init(
+            .sRGB,
+            red: min(max(Double(r) / 255, 0), 1),
+            green: min(max(Double(g) / 255, 0), 1),
+            blue: min(max(Double(b) / 255, 0), 1),
+            opacity: min(max(Double(a) / 255, 0), 1)
+        )
+    }
+}

@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		901A57452EDD0017003DBA40 /* GoogleGenerativeAI in Frameworks */ = {isa = PBXBuildFile; productRef = 901A57442EDD0017003DBA40 /* GoogleGenerativeAI */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		901A56FB2EDCFA64003DBA40 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				901A57452EDD0017003DBA40 /* GoogleGenerativeAI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -78,6 +83,7 @@
 				901A56ED2EDCFA63003DBA40 /* Blackboard */,
 				901A56FD2EDCFA64003DBA40 /* BlackboardTests */,
 				901A57072EDCFA64003DBA40 /* BlackboardUITests */,
+				901A57432EDD0017003DBA40 /* Frameworks */,
 				901A56EC2EDCFA63003DBA40 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -90,6 +96,13 @@
 				901A57042EDCFA64003DBA40 /* BlackboardUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		901A57432EDD0017003DBA40 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -112,6 +125,7 @@
 			);
 			name = Blackboard;
 			packageProductDependencies = (
+				901A57442EDD0017003DBA40 /* GoogleGenerativeAI */,
 			);
 			productName = Blackboard;
 			productReference = 901A56EB2EDCFA63003DBA40 /* Blackboard.app */;
@@ -195,6 +209,9 @@
 			);
 			mainGroup = 901A56E22EDCFA63003DBA40;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				901A57422EDCFBE1003DBA40 /* XCRemoteSwiftPackageReference "generative-ai-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 901A56EC2EDCFA63003DBA40 /* Products */;
 			projectDirPath = "";
@@ -393,6 +410,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Blackboard/Blackboard.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
@@ -424,6 +442,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Blackboard/Blackboard.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
@@ -570,6 +589,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		901A57422EDCFBE1003DBA40 /* XCRemoteSwiftPackageReference "generative-ai-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/generative-ai-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.5.6;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		901A57442EDD0017003DBA40 /* GoogleGenerativeAI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 901A57422EDCFBE1003DBA40 /* XCRemoteSwiftPackageReference "generative-ai-swift" */;
+			productName = GoogleGenerativeAI;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 901A56E32EDCFA63003DBA40 /* Project object */;
 }

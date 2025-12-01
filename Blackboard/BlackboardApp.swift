@@ -1,10 +1,3 @@
-//
-//  BlackboardApp.swift
-//  Blackboard
-//
-//  Created by 蔡昀彤 on 11/30/25.
-//
-
 import SwiftUI
 import SwiftData
 
@@ -12,7 +5,7 @@ import SwiftData
 struct BlackboardApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            NoteItem.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
@@ -23,9 +16,17 @@ struct BlackboardApp: App {
         }
     }()
 
+    @StateObject private var authManager = AuthenticationManager()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            if authManager.isAuthenticated {
+                ContentView()
+                    .environmentObject(authManager)
+            } else {
+                LoginView()
+                    .environmentObject(authManager)
+            }
         }
         .modelContainer(sharedModelContainer)
     }
