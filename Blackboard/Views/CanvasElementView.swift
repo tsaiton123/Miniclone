@@ -60,10 +60,15 @@ struct CanvasElementView: View {
                     )
             
             case .image(let data):
-                // Placeholder for Image View
-                Rectangle()
-                    .fill(Color.gray.opacity(0.2))
-                    .overlay(Text("Image"))
+                if let uiImage = UIImage(data: Data(base64Encoded: data.src) ?? Data()) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                } else {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.2))
+                        .overlay(Text("Image Error"))
+                }
                 
             case .stroke(let data):
                 // Placeholder for Stroke View

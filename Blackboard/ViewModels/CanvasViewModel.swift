@@ -11,6 +11,10 @@ class CanvasViewModel: ObservableObject {
     @Published var selectionBox: CGRect?
     @Published var editingElementId: UUID?
     
+    // Styling
+    @Published var currentStrokeColor: String = "#ffffff"
+    @Published var currentStrokeWidth: CGFloat = 2.0
+    
     // Undo/Redo
     private var undoStack: [[CanvasElementData]] = []
     private var redoStack: [[CanvasElementData]] = []
@@ -289,7 +293,7 @@ class CanvasViewModel: ObservableObject {
     
     func startStroke(at point: CGPoint) {
         let canvasPoint = toCanvasCoordinates(point)
-        let strokeData = StrokeData(points: [StrokeData.Point(x: canvasPoint.x, y: canvasPoint.y)], color: "#ffffff", width: 2)
+        let strokeData = StrokeData(points: [StrokeData.Point(x: canvasPoint.x, y: canvasPoint.y)], color: currentStrokeColor, width: currentStrokeWidth)
         
         currentStroke = CanvasElementData(
             id: UUID(),
@@ -540,6 +544,12 @@ class CanvasViewModel: ObservableObject {
         elements.removeAll(where: { selectedElementIds.contains($0.id) })
         selectedElementIds.removeAll()
         saveCanvas()
+    }
+    
+    func eraseElement(at point: CGPoint) {
+        if let id = findElement(at: point) {
+            removeElement(id: id)
+        }
     }
     
     func selectElement(id: UUID) {

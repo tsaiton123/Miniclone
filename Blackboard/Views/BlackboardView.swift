@@ -51,14 +51,30 @@ struct BlackboardView: View {
                 }
             }
         }
+        .sheet(isPresented: $isShowingImagePicker) {
+            ImagePicker { image in
+                viewModel.addElement(CanvasElementData(
+                    id: UUID(),
+                    type: .image,
+                    x: 100,
+                    y: 100,
+                    width: 200,
+                    height: 200 * (image.size.height / image.size.width),
+                    zIndex: viewModel.elements.count,
+                    data: .image(ImageData(src: image.pngData()?.base64EncodedString() ?? "", originalWidth: image.size.width, originalHeight: image.size.height))
+                ))
+            }
+        }
     }
     
     @State private var selectedTool: ToolbarView.ToolType = .select
     @State private var isShowingDocumentPicker = false
+    @State private var isShowingImagePicker = false
     @State private var selectedPDFURL: URL?
     @State private var isMovingSelection = false
     @State private var isShowingPDFSelection = false
     @State private var isShowingChat = false
+    @State private var isShowingCalculator = false
     @State private var chatContext: String?
     @StateObject private var geminiService = GeminiService()
     
@@ -239,6 +255,8 @@ struct BlackboardView: View {
                                     viewModel.updateSelection(to: value.location)
                                 }
                             }
+                        } else if selectedTool == .eraser {
+                            viewModel.eraseElement(at: value.location)
                         } else {
                             viewModel.handleDrag(translation: value.translation)
                         }
@@ -319,6 +337,8 @@ struct BlackboardView: View {
                 Spacer()
                 ToolbarView(
                     selectedTool: $selectedTool,
+                    strokeColor: $viewModel.currentStrokeColor,
+                    strokeWidth: $viewModel.currentStrokeWidth,
                     onAddGraph: {
                         // Removed
                     },
@@ -327,6 +347,12 @@ struct BlackboardView: View {
                     },
                     onImportPDF: {
                         isShowingDocumentPicker = true
+                    },
+                    onImportImage: {
+                        isShowingImagePicker = true
+                    },
+                    onToggleCalculator: {
+                        isShowingCalculator.toggle()
                     },
                     onDeleteSelection: {
                         viewModel.deleteSelection()
@@ -391,6 +417,21 @@ struct BlackboardView: View {
                 .transition(.move(edge: .trailing))
                 .zIndex(100)
             }
+            
+            // Calculator Overlay
+            if isShowingCalculator {
+                VStack {
+                    HStack {
+                        CalculatorView()
+                            .padding(.leading, 20)
+                            .padding(.top, 100)
+                        Spacer()
+                    }
+                    Spacer()
+                }
+                .transition(.move(edge: .leading))
+                .zIndex(100)
+            }
         }
     }
 
@@ -399,4 +440,40 @@ struct BlackboardView: View {
 // Helper to make URL Identifiable for fullScreenCover
 extension URL: Identifiable {
     public var id: String { absoluteString }
+}
+
+struct ImagePicker: UIViewControllerRepresentable {
+    var onImagePicked: (UIImage) -> Void
+    @Environment(\.presentationMode) var presentationMode
+    
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.delegate = context.coordinator
+        return picker
+    }
+    
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        let parent: ImagePicker
+        
+        init(_ parent: ImagePicker) {
+            self.parent = parent
+        }
+        
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+            if let image = info[.originalImage] as? UIImage {
+                parent.onImagePicked(image)
+            }
+            parent.presentationMode.wrappedValue.dismiss()
+        }
+        
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.presentationMode.wrappedValue.dismiss()
+        }
+    }
 }
