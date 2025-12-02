@@ -578,4 +578,102 @@ class CanvasViewModel: ObservableObject {
         }
         return content
     }
+    
+    func mergeSelection(image: UIImage, bounds: CGRect) {
+        guard !selectedElementIds.isEmpty else { return }
+        
+        saveState()
+        
+        // Remove original elements
+        elements.removeAll(where: { selectedElementIds.contains($0.id) })
+        
+        // Create new merged element
+        let newElement = CanvasElementData(
+            id: UUID(),
+            type: .image,
+            x: bounds.minX,
+            y: bounds.minY,
+            width: bounds.width,
+            height: bounds.height,
+            zIndex: elements.count,
+            data: .image(ImageData(src: image.pngData()?.base64EncodedString() ?? "", originalWidth: image.size.width, originalHeight: image.size.height))
+        )
+        
+        elements.append(newElement)
+        
+        // Select the new element
+        selectedElementIds = [newElement.id]
+        
+        saveCanvas()
+    }
+    
+    // MARK: - Resizing Selection
+    
+    private var initialSelectionBounds: CGRect?
+    private var initialSelectedElements: [UUID: CanvasElementData] = [:]
+    
+    func startResizingSelection() {
+        saveState()
+        initialSelectionBounds = selectedElementsBounds
+        initialSelectedElements.removeAll()
+        for id in selectedElementIds {
+            if let element = elements.first(where: { $0.id == id }) {
+                initialSelectedElements[id] = element
+            }
+        }
+    }
+    
+    func resizeSelection(translation: CGSize) {
+        guard let initialBounds = initialSelectionBounds, initialBounds.width > 0, initialBounds.height > 0 else { return }
+        
+        // Adjust translation for zoom
+        let deltaWidth = translation.width / scale
+        let deltaHeight = translation.height / scale
+        
+        let newWidth = max(20, initialBounds.width + deltaWidth)
+        let newHeight = max(20, initialBounds.height + deltaHeight)
+        
+        resizeSelection(to: CGSize(width: newWidth, height: newHeight))
+    }
+    
+    private func resizeSelection(to newSize: CGSize) {
+        guard let initialBounds = initialSelectionBounds else { return }
+        
+        let scaleX = newSize.width / initialBounds.width
+        let scaleY = newSize.height / initialBounds.height
+        
+        for (id, initialElement) in initialSelectedElements {
+            if let index = elements.firstIndex(where: { $0.id == id }) {
+                var element = elements[index]
+                
+                // Calculate new position relative to bounds origin
+                let relativeX = initialElement.x - initialBounds.minX
+                let relativeY = initialElement.y - initialBounds.minY
+                
+                element.x = initialBounds.minX + (relativeX * scaleX)
+                element.y = initialBounds.minY + (relativeY * scaleY)
+                element.width = initialElement.width * scaleX
+                element.height = initialElement.height * scaleY
+                
+                // Scale content
+                if case .stroke(let data) = initialElement.data {
+                    let newPoints = data.points.map { point in
+                        StrokeData.Point(x: point.x * scaleX, y: point.y * scaleY)
+                    }
+                    let scale = (scaleX + scaleY) / 2.0
+                    let newWidth = data.width * scale
+                    
+                    element.data = .stroke(StrokeData(points: newPoints, color: data.color, width: newWidth))
+                }
+                
+                elements[index] = element
+            }
+        }
+    }
+    
+    func endResizingSelection() {
+        initialSelectionBounds = nil
+        initialSelectedElements.removeAll()
+        saveCanvas()
+    }
 }

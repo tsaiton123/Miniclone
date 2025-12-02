@@ -72,6 +72,7 @@ struct BlackboardView: View {
     @State private var isShowingImagePicker = false
     @State private var selectedPDFURL: URL?
     @State private var isMovingSelection = false
+    @State private var isResizingSelection = false
     @State private var isShowingPDFSelection = false
     @State private var isShowingChat = false
     @State private var isShowingCalculator = false
@@ -155,64 +156,129 @@ struct BlackboardView: View {
                         .border(Color.blue, width: 1)
                         .allowsHitTesting(false)
                     
-                    // Ask AI Button
-                    Button(action: {
-                        let context = viewModel.getSelectedContent()
-                        let center = CGPoint(x: box.maxX + 20, y: box.minY)
-                        
-                        // Capture Snapshot
-                        let selectedElements = viewModel.elements.filter { viewModel.selectedElementIds.contains($0.id) }
-                        let bounds = box
-                        
-                        // Create temporary elements relative to bounds
-                        let tempElements = selectedElements.map { original -> CanvasElementData in
-                            var temp = original
-                            temp.x -= bounds.minX
-                            temp.y -= bounds.minY
-                            return temp
-                        }
-                        
-                        let snapshotView = ZStack(alignment: .topLeading) {
-                            Color.black // Background (Blackboard style)
-                            ForEach(tempElements) { element in
-                                CanvasElementView(element: element, isSelected: false, onDelete: {})
-                            }
-                        }
-                        .frame(width: bounds.width, height: bounds.height)
-                        
-                        let renderer = ImageRenderer(content: snapshotView)
-                        renderer.scale = UIScreen.main.scale
-                        let image = renderer.uiImage
-                        
-                        Task {
-                            do {
-                                let response = try await geminiService.sendSelectionContext(context, image: image)
-                                let (cleanText, graphCommand) = geminiService.parseResponse(response)
-                                
-                                await MainActor.run {
-                                    if !cleanText.isEmpty {
-                                        viewModel.addText(cleanText, at: center)
+                    // Resize Handle
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 12, height: 12)
+                        .overlay(Circle().stroke(Color.blue, lineWidth: 1))
+                        .frame(width: 44, height: 44) // Increase touch target
+                        .contentShape(Circle())
+                        .position(x: box.width, y: box.height)
+                        .gesture(
+                            DragGesture()
+                                .onChanged { value in
+                                    if !isResizingSelection {
+                                        isResizingSelection = true
+                                        viewModel.startResizingSelection()
                                     }
-                                    
-                                    if let command = graphCommand {
-                                        viewModel.addGraph(expression: command.expression, xMin: command.xMin, xMax: command.xMax)
-                                    }
+                                    viewModel.resizeSelection(translation: value.translation)
                                 }
-                            } catch {
-                                print("AI Error: \(error)")
+                                .onEnded { _ in
+                                    viewModel.endResizingSelection()
+                                    isResizingSelection = false
+                                }
+                        )
+                    
+                    // Action Buttons
+                    HStack(spacing: 12) {
+                        // Ask AI Button
+                        Button(action: {
+                            let context = viewModel.getSelectedContent()
+                            let center = CGPoint(x: box.maxX + 20, y: box.minY)
+                            
+                            // Capture Snapshot
+                            let selectedElements = viewModel.elements.filter { viewModel.selectedElementIds.contains($0.id) }
+                            let bounds = box
+                            
+                            // Create temporary elements relative to bounds
+                            let tempElements = selectedElements.map { original -> CanvasElementData in
+                                var temp = original
+                                temp.x -= bounds.minX
+                                temp.y -= bounds.minY
+                                return temp
                             }
+                            
+                            let snapshotView = ZStack(alignment: .topLeading) {
+                                Color.black // Blackboard style background
+                                ForEach(tempElements) { element in
+                                    CanvasElementView(element: element, isSelected: false, onDelete: {})
+                                }
+                            }
+                            .frame(width: bounds.width, height: bounds.height)
+                            
+                            let renderer = ImageRenderer(content: snapshotView)
+                            renderer.scale = UIScreen.main.scale
+                            let image = renderer.uiImage
+                            
+                            Task {
+                                do {
+                                    let response = try await geminiService.sendSelectionContext(context, image: image)
+                                    let (cleanText, graphCommand) = geminiService.parseResponse(response)
+                                    
+                                    await MainActor.run {
+                                        if !cleanText.isEmpty {
+                                            viewModel.addText(cleanText, at: center)
+                                        }
+                                        
+                                        if let command = graphCommand {
+                                            viewModel.addGraph(expression: command.expression, xMin: command.xMin, xMax: command.xMax)
+                                        }
+                                    }
+                                } catch {
+                                    print("AI Error: \(error)")
+                                }
+                            }
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "sparkles")
+                                Text("Ask AI")
+                            }
+                            .font(.caption)
+                            .padding(6)
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                            .shadow(radius: 2)
                         }
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "sparkles")
-                            Text("Ask AI")
+                        
+                        // Merge Button
+                        Button(action: {
+                            // Capture Snapshot
+                            let selectedElements = viewModel.elements.filter { viewModel.selectedElementIds.contains($0.id) }
+                            let bounds = box
+                            
+                            // Create temporary elements relative to bounds
+                            let tempElements = selectedElements.map { original -> CanvasElementData in
+                                var temp = original
+                                temp.x -= bounds.minX
+                                temp.y -= bounds.minY
+                                return temp
+                            }
+                            
+                            let snapshotView = ZStack(alignment: .topLeading) {
+                                ForEach(tempElements) { element in
+                                    CanvasElementView(element: element, isSelected: false, onDelete: {})
+                                }
+                            }
+                            .frame(width: bounds.width, height: bounds.height)
+                            
+                            let renderer = ImageRenderer(content: snapshotView)
+                            renderer.scale = UIScreen.main.scale
+                            if let image = renderer.uiImage {
+                                viewModel.mergeSelection(image: image, bounds: bounds)
+                            }
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "square.on.square")
+                                Text("Merge")
+                            }
+                            .font(.caption)
+                            .padding(6)
+                            .background(Color.green)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                            .shadow(radius: 2)
                         }
-                        .font(.caption)
-                        .padding(6)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
-                        .shadow(radius: 2)
                     }
                     .offset(y: -40)
                 }
