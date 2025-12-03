@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		901A57452EDD0017003DBA40 /* GoogleGenerativeAI in Frameworks */ = {isa = PBXBuildFile; productRef = 901A57442EDD0017003DBA40 /* GoogleGenerativeAI */; };
+		90D77E552EDFCA350006E299 /* LaTeXSwiftUI in Frameworks */ = {isa = PBXBuildFile; productRef = 90D77E542EDFCA350006E299 /* LaTeXSwiftUI */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,6 +58,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				901A57452EDD0017003DBA40 /* GoogleGenerativeAI in Frameworks */,
+				90D77E552EDFCA350006E299 /* LaTeXSwiftUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -126,6 +128,7 @@
 			name = Blackboard;
 			packageProductDependencies = (
 				901A57442EDD0017003DBA40 /* GoogleGenerativeAI */,
+				90D77E542EDFCA350006E299 /* LaTeXSwiftUI */,
 			);
 			productName = Blackboard;
 			productReference = 901A56EB2EDCFA63003DBA40 /* Blackboard.app */;
@@ -211,6 +214,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				901A57422EDCFBE1003DBA40 /* XCRemoteSwiftPackageReference "generative-ai-swift" */,
+				90D77E532EDFCA130006E299 /* XCRemoteSwiftPackageReference "LaTeXSwiftUI" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 901A56EC2EDCFA63003DBA40 /* Products */;
@@ -601,6 +605,14 @@
 				minimumVersion = 0.5.6;
 			};
 		};
+		90D77E532EDFCA130006E299 /* XCRemoteSwiftPackageReference "LaTeXSwiftUI" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/colinc86/LaTeXSwiftUI";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -608,6 +620,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 901A57422EDCFBE1003DBA40 /* XCRemoteSwiftPackageReference "generative-ai-swift" */;
 			productName = GoogleGenerativeAI;
+		};
+		90D77E542EDFCA350006E299 /* LaTeXSwiftUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 90D77E532EDFCA130006E299 /* XCRemoteSwiftPackageReference "LaTeXSwiftUI" */;
+			productName = LaTeXSwiftUI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

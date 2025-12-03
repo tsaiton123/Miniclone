@@ -76,6 +76,8 @@ struct BlackboardView: View {
     @State private var isShowingPDFSelection = false
     @State private var isShowingChat = false
     @State private var isShowingCalculator = false
+    @State private var isShowingSettings = false
+    @State private var isFingerDrawingEnabled = false
     @State private var chatContext: String?
     @StateObject private var geminiService = GeminiService()
     
@@ -181,54 +183,26 @@ struct BlackboardView: View {
                     
                     // Action Buttons
                     HStack(spacing: 12) {
-                        // Ask AI Button
-                        Button(action: {
-                            let context = viewModel.getSelectedContent()
-                            let center = CGPoint(x: box.maxX + 20, y: box.minY)
-                            
-                            // Capture Snapshot
-                            let selectedElements = viewModel.elements.filter { viewModel.selectedElementIds.contains($0.id) }
-                            let bounds = box
-                            
-                            // Create temporary elements relative to bounds
-                            let tempElements = selectedElements.map { original -> CanvasElementData in
-                                var temp = original
-                                temp.x -= bounds.minX
-                                temp.y -= bounds.minY
-                                return temp
+                        // Ask AI Menu
+                        Menu {
+                            Button(action: {
+                                performAIAction(mode: .explain, box: box)
+                            }) {
+                                Label("Explain", systemImage: "text.bubble")
                             }
                             
-                            let snapshotView = ZStack(alignment: .topLeading) {
-                                Color.black // Blackboard style background
-                                ForEach(tempElements) { element in
-                                    CanvasElementView(element: element, isSelected: false, onDelete: {})
-                                }
+                            Button(action: {
+                                performAIAction(mode: .solve, box: box)
+                            }) {
+                                Label("Solve", systemImage: "function")
                             }
-                            .frame(width: bounds.width, height: bounds.height)
                             
-                            let renderer = ImageRenderer(content: snapshotView)
-                            renderer.scale = UIScreen.main.scale
-                            let image = renderer.uiImage
-                            
-                            Task {
-                                do {
-                                    let response = try await geminiService.sendSelectionContext(context, image: image)
-                                    let (cleanText, graphCommand) = geminiService.parseResponse(response)
-                                    
-                                    await MainActor.run {
-                                        if !cleanText.isEmpty {
-                                            viewModel.addText(cleanText, at: center)
-                                        }
-                                        
-                                        if let command = graphCommand {
-                                            viewModel.addGraph(expression: command.expression, xMin: command.xMin, xMax: command.xMax)
-                                        }
-                                    }
-                                } catch {
-                                    print("AI Error: \(error)")
-                                }
+                            Button(action: {
+                                performAIAction(mode: .plot, box: box)
+                            }) {
+                                Label("Plot", systemImage: "chart.xyaxis.line")
                             }
-                        }) {
+                        } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: "sparkles")
                                 Text("Ask AI")
@@ -292,108 +266,8 @@ struct BlackboardView: View {
     }
     
     var gestureReceiver: some View {
-        Color.black.opacity(0.001)
+        CanvasInputView(viewModel: viewModel, selectedTool: $selectedTool, isFingerDrawingEnabled: $isFingerDrawingEnabled)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        if selectedTool == .pen {
-                            viewModel.continueStroke(at: value.location)
-                        } else if selectedTool == .select {
-                            if isMovingSelection {
-                                viewModel.moveSelection(translation: value.translation)
-                            } else if viewModel.selectionBox != nil {
-                                viewModel.updateSelection(to: value.location)
-                            } else {
-                                // New gesture start
-                                if viewModel.isPointInSelectedElement(value.startLocation) {
-                                    isMovingSelection = true
-                                    viewModel.startMovingSelection()
-                                    viewModel.moveSelection(translation: value.translation)
-                                } else if let elementId = viewModel.findElement(at: value.startLocation) {
-                                    // Click and drag unselected element
-                                    viewModel.selectElement(id: elementId)
-                                    isMovingSelection = true
-                                    viewModel.startMovingSelection()
-                                    viewModel.moveSelection(translation: value.translation)
-                                } else {
-                                    viewModel.startSelection(at: value.startLocation)
-                                    viewModel.updateSelection(to: value.location)
-                                }
-                            }
-                        } else if selectedTool == .eraser {
-                            viewModel.eraseElement(at: value.location)
-                        } else {
-                            viewModel.handleDrag(translation: value.translation)
-                        }
-                    }
-                    .onEnded { value in
-                        if selectedTool == .pen {
-                            viewModel.endStroke()
-                        } else if selectedTool == .select {
-                            if isMovingSelection {
-                                viewModel.endMovingSelection()
-                                isMovingSelection = false
-                            } else {
-                                viewModel.endSelection()
-                            }
-                        } else if selectedTool == .text {
-                            // Add text at tap location (startLocation)
-                            let location = value.startLocation
-                            let canvasX = (location.x - viewModel.offset.width) / viewModel.scale
-                            let canvasY = (location.y - viewModel.offset.height) / viewModel.scale
-                            
-                            let newText = CanvasElementData(
-                                id: UUID(),
-                                type: .text,
-                                x: canvasX,
-                                y: canvasY,
-                                width: 200,
-                                height: 50,
-                                zIndex: viewModel.elements.count,
-                                data: .text(TextData(text: "New Text", fontSize: 24, fontFamily: "Caveat", color: "#ffffff"))
-                            )
-                            viewModel.addElement(newText)
-                            
-                            // Switch back to select tool for convenience
-                            selectedTool = .select
-                        } else {
-                            viewModel.endDrag(translation: value.translation)
-                        }
-                    }
-            )
-            .gesture(
-                MagnificationGesture()
-                    .onChanged { value in
-                        viewModel.handleMagnification(value: value)
-                    }
-                    .onEnded { value in
-                        viewModel.endMagnification(value: value)
-                    }
-            )
-            .onTapGesture {
-                viewModel.clearSelection()
-            }
-            .gesture(
-                SpatialTapGesture(count: 2)
-                    .onEnded { event in
-                        let location = event.location
-                        let canvasX = (location.x - viewModel.offset.width) / viewModel.scale
-                        let canvasY = (location.y - viewModel.offset.height) / viewModel.scale
-                        
-                        let newText = CanvasElementData(
-                            id: UUID(),
-                            type: .text,
-                            x: canvasX - 100, // Center text on tap
-                            y: canvasY - 25,
-                            width: 200,
-                            height: 50,
-                            zIndex: 0,
-                            data: .text(TextData(text: "New Text", fontSize: 24, fontFamily: "Caveat", color: "#ffffff"))
-                        )
-                        viewModel.addElement(newText)
-                    }
-            )
     }
     
     var toolbarOverlay: some View {
@@ -429,10 +303,34 @@ struct BlackboardView: View {
                     onRedo: {
                         viewModel.redo()
                     },
+                    onSettings: {
+                        isShowingSettings = true
+                    },
                     canUndo: viewModel.canUndo,
                     canRedo: viewModel.canRedo
                 )
                 .padding(.bottom, 20)
+            }
+            .sheet(isPresented: $isShowingSettings) {
+                NavigationView {
+                    Form {
+                        Section(header: Text("Input")) {
+                            Toggle("Enable Finger Drawing", isOn: $isFingerDrawingEnabled)
+                        }
+                        
+                        Section(footer: Text("When enabled, use two fingers to scroll/pan the canvas while drawing.")) {
+                            EmptyView()
+                        }
+                    }
+                    .navigationTitle("Settings")
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button("Done") {
+                                isShowingSettings = false
+                            }
+                        }
+                    }
+                }
             }
             
             // Zoom Controls (Bottom Right)
@@ -501,7 +399,58 @@ struct BlackboardView: View {
         }
     }
 
+
+    
+    func performAIAction(mode: GeminiService.AIMode, box: CGRect) {
+        let context = viewModel.getSelectedContent()
+        let center = CGPoint(x: box.maxX + 20, y: box.minY)
+        
+        // Capture Snapshot
+        let selectedElements = viewModel.elements.filter { viewModel.selectedElementIds.contains($0.id) }
+        let bounds = box
+        
+        // Create temporary elements relative to bounds
+        let tempElements = selectedElements.map { original -> CanvasElementData in
+            var temp = original
+            temp.x -= bounds.minX
+            temp.y -= bounds.minY
+            return temp
+        }
+        
+        let snapshotView = ZStack(alignment: .topLeading) {
+            Color.black // Ensure strokes are visible for AI
+            ForEach(tempElements) { element in
+                CanvasElementView(element: element, isSelected: false, onDelete: {})
+            }
+        }
+        .frame(width: bounds.width, height: bounds.height)
+        
+        let renderer = ImageRenderer(content: snapshotView)
+        renderer.scale = UIScreen.main.scale
+        let image = renderer.uiImage
+        
+        Task {
+            do {
+                let response = try await geminiService.sendSelectionContext(context, image: image, mode: mode)
+                let (cleanText, graphCommand) = geminiService.parseResponse(response)
+                
+                await MainActor.run {
+                    if !cleanText.isEmpty {
+                        viewModel.addText(cleanText, at: center)
+                    }
+                    
+                    if let command = graphCommand {
+                        viewModel.addGraph(expression: command.expression, xMin: command.xMin, xMax: command.xMax)
+                    }
+                }
+            } catch {
+                print("AI Error: \(error)")
+            }
+        }
     }
+    }
+
+
 
 // Helper to make URL Identifiable for fullScreenCover
 extension URL: Identifiable {

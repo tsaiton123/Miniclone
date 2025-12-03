@@ -1,4 +1,6 @@
 import SwiftUI
+import LaTeXSwiftUI
+
 
 struct CanvasElementView: View {
     let element: CanvasElementData
@@ -35,7 +37,7 @@ struct CanvasElementView: View {
                             }
                         }
                 } else {
-                    Text(data.text)
+                    LaTeX(data.text)
                         .font(.custom(data.fontFamily, size: data.fontSize))
                         .foregroundColor(Color(hex: data.color))
                 }

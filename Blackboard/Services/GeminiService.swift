@@ -45,6 +45,8 @@ class GeminiService: ObservableObject {
         You are an AI assistant that writes on a digital blackboard. Your responses will be rendered in beautiful handwriting.
 
         IMPORTANT: Be concise and minimal. Only provide exactly what the user asks for.
+        
+        Use standard LaTeX formatting for mathematical expressions (e.g., $x^2 + y^2 = r^2$).
 
         When the user asks you to plot a mathematical function, respond with ONLY the JSON tool call - no extra text:
 
@@ -87,12 +89,28 @@ class GeminiService: ObservableObject {
         return response.text ?? ""
     }
     
-    func sendSelectionContext(_ context: String, image: UIImage? = nil, query: String = "Explain this") async throws -> String {
+    enum AIMode {
+        case explain
+        case solve
+        case plot
+    }
+    
+    func sendSelectionContext(_ context: String, image: UIImage? = nil, mode: AIMode) async throws -> String {
+        let instruction: String
+        switch mode {
+        case .explain:
+            instruction = "Explain the following content clearly and concisely."
+        case .solve:
+            instruction = "Solve the mathematical problem in the following content. Show step-by-step reasoning."
+        case .plot:
+            instruction = "Identify the mathematical function in the content and plot it. Return ONLY the JSON for plotting. Do not provide any text explanation."
+        }
+        
         let prompt = """
+        \(instruction)
+        
         Context from Blackboard Selection:
         \(context)
-        
-        User Question: \(query)
         """
         return try await sendMessage(prompt, image: image)
     }

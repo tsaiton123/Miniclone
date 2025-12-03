@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import UIKit
 
 class CanvasViewModel: ObservableObject {
     @Published var elements: [CanvasElementData] = []
@@ -496,13 +497,26 @@ class CanvasViewModel: ObservableObject {
     }
     
     func addText(_ text: String, at point: CGPoint = CGPoint(x: 100, y: 100)) {
+        // Calculate size
+        let font = UIFont(name: "Caveat-Regular", size: 20) ?? .systemFont(ofSize: 20)
+        let maxConstraint = CGSize(width: 500, height: CGFloat.greatestFiniteMagnitude)
+        let boundingRect = text.boundingRect(
+            with: maxConstraint,
+            options: .usesLineFragmentOrigin,
+            attributes: [.font: font],
+            context: nil
+        )
+        
+        let width = max(boundingRect.width + 40, 100) // Min width 100, add padding
+        let height = max(boundingRect.height + 40, 50) // Min height 50, add padding
+        
         let newElement = CanvasElementData(
             id: UUID(),
             type: .text,
             x: point.x,
             y: point.y,
-            width: 300, // Default width
-            height: 100, // Default height
+            width: width,
+            height: height,
             zIndex: elements.count,
             data: .text(TextData(text: text, fontSize: 20, fontFamily: "Caveat", color: "#ffffff"))
         )

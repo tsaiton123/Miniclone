@@ -1,4 +1,6 @@
 import SwiftUI
+import LaTeXSwiftUI
+
 
 struct ChatView: View {
     @StateObject private var geminiService = GeminiService()
@@ -124,7 +126,7 @@ struct ChatView: View {
             do {
                 let response: String
                 if isContextMessage {
-                    response = try await geminiService.sendSelectionContext(text)
+                    response = try await geminiService.sendSelectionContext(text, mode: .explain)
                 } else {
                     response = try await geminiService.sendMessage(text)
                 }
@@ -169,7 +171,7 @@ struct MessageBubble: View {
                     .cornerRadius(12)
                     .font(.custom("Caveat-Regular", size: 20)) // Use handwriting font for user too? Or maybe just AI.
             } else {
-                Text(message.text)
+                LaTeX(message.text)
                     .padding(10)
                     .background(Color(UIColor.secondarySystemBackground))
                     .foregroundColor(.primary)

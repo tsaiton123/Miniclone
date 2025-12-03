@@ -13,6 +13,7 @@ struct ToolbarView: View {
     var onDeleteSelection: () -> Void
     var onUndo: () -> Void
     var onRedo: () -> Void
+    var onSettings: () -> Void
     var canUndo: Bool
     var canRedo: Bool
     
@@ -128,6 +129,10 @@ struct ToolbarView: View {
                     Button(action: onDeleteSelection) {
                         Image(systemName: "trash")
                             .foregroundColor(.red)
+                    }
+                    
+                    Button(action: onSettings) {
+                        Image(systemName: "gear")
                     }
                 }
             }
