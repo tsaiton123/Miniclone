@@ -97,8 +97,38 @@ struct StrokeData: Codable {
     var color: String
     var width: CGFloat
     
-    struct Point: Codable {
+    struct Point: Codable, Equatable {
         var x: CGFloat
         var y: CGFloat
     }
 }
+
+extension CanvasElementData: Equatable {
+    static func == (lhs: CanvasElementData, rhs: CanvasElementData) -> Bool {
+        return lhs.id == rhs.id &&
+            lhs.type == rhs.type &&
+            lhs.x == rhs.x &&
+            lhs.y == rhs.y &&
+            lhs.width == rhs.width &&
+            lhs.height == rhs.height &&
+            lhs.zIndex == rhs.zIndex &&
+            lhs.data == rhs.data
+    }
+}
+
+extension ElementContentData: Equatable {
+    static func == (lhs: ElementContentData, rhs: ElementContentData) -> Bool {
+        switch (lhs, rhs) {
+        case (.text(let l), .text(let r)): return l == r
+        case (.graph(let l), .graph(let r)): return l == r
+        case (.image(let l), .image(let r)): return l == r
+        case (.stroke(let l), .stroke(let r)): return l == r
+        default: return false
+        }
+    }
+}
+
+extension TextData: Equatable {}
+extension GraphData: Equatable {}
+extension ImageData: Equatable {}
+extension StrokeData: Equatable {}

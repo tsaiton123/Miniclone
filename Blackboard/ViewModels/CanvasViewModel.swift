@@ -12,6 +12,9 @@ class CanvasViewModel: ObservableObject {
     @Published var selectionBox: CGRect?
     @Published var editingElementId: UUID?
     
+    // Cache for images to avoid repeated base64 decoding
+    @Published var imageCache: [UUID: UIImage] = [:]
+    
     // Styling
     @Published var currentStrokeColor: String = "#ffffff"
     @Published var currentStrokeWidth: CGFloat = 2.0
@@ -25,10 +28,22 @@ class CanvasViewModel: ObservableObject {
     private var lastScale: CGFloat = 1.0
     private var selectionStartPoint: CGPoint?
     private var cancellables = Set<AnyCancellable>()
+    private var hasCenteredInitial = false
+    private let saveTrigger = PassthroughSubject<Void, Never>()
     
     init(noteId: UUID) {
         self.noteId = noteId
+        setupDebouncedSave()
         loadCanvas()
+    }
+    
+    private func setupDebouncedSave() {
+        saveTrigger
+            .debounce(for: .seconds(1), scheduler: RunLoop.main)
+            .sink { [weak self] in
+                self?.performSave()
+            }
+            .store(in: &cancellables)
     }
     
     // MARK: - Panning & Zooming
@@ -58,6 +73,28 @@ class CanvasViewModel: ObservableObject {
     
     func zoomOut() {
         scale = max(scale - 0.1, 0.1)
+    }
+    
+    func centerCanvas(in screenSize: CGSize) {
+        // Initial centering logic: center the A4 paper in the available screen space
+        // We only do this if we haven't centered yet or if the canvas is empty
+        guard screenSize.width > 0 && screenSize.height > 0 else { return }
+        
+        let initialScale: CGFloat = min(
+            (screenSize.width - 40) / CanvasConstants.a4Width,
+            (screenSize.height - 40) / CanvasConstants.a4Height,
+            1.0
+        )
+        
+        scale = initialScale
+        lastScale = initialScale
+        
+        let offsetX = (screenSize.width - CanvasConstants.a4Width * scale) / 2
+        let offsetY = (screenSize.height - CanvasConstants.a4Height * scale) / 2
+        
+        offset = CGSize(width: offsetX, height: offsetY)
+        lastOffset = offset
+        hasCenteredInitial = true
     }
     
     func clearCanvas() {
@@ -279,8 +316,12 @@ class CanvasViewModel: ObservableObject {
         
         for (id, initialPos) in initialElementPositions {
             if let index = elements.firstIndex(where: { $0.id == id }) {
-                elements[index].x = initialPos.x + deltaX
-                elements[index].y = initialPos.y + deltaY
+                let element = elements[index]
+                let newX = max(0, min(initialPos.x + deltaX, CanvasConstants.a4Width - element.width))
+                let newY = max(0, min(initialPos.y + deltaY, CanvasConstants.a4Height - element.height))
+                
+                elements[index].x = newX
+                elements[index].y = newY
             }
         }
     }
@@ -294,13 +335,19 @@ class CanvasViewModel: ObservableObject {
     
     func startStroke(at point: CGPoint) {
         let canvasPoint = toCanvasCoordinates(point)
-        let strokeData = StrokeData(points: [StrokeData.Point(x: canvasPoint.x, y: canvasPoint.y)], color: currentStrokeColor, width: currentStrokeWidth)
+        // Clamp to A4
+        let clampedPoint = CGPoint(
+            x: max(0, min(canvasPoint.x, CanvasConstants.a4Width)),
+            y: max(0, min(canvasPoint.y, CanvasConstants.a4Height))
+        )
+        
+        let strokeData = StrokeData(points: [StrokeData.Point(x: clampedPoint.x, y: clampedPoint.y)], color: currentStrokeColor, width: currentStrokeWidth)
         
         currentStroke = CanvasElementData(
             id: UUID(),
             type: .stroke,
-            x: 0, y: 0, // Stroke points are absolute in canvas space, so x/y can be 0 or bounding box
-            width: 0, height: 0, // Will update later
+            x: 0, y: 0,
+            width: 0, height: 0,
             zIndex: 1,
             data: .stroke(strokeData)
         )
@@ -313,7 +360,11 @@ class CanvasViewModel: ObservableObject {
         }
         
         let canvasPoint = toCanvasCoordinates(point)
-        data.points.append(StrokeData.Point(x: canvasPoint.x, y: canvasPoint.y))
+        // Clamp to A4
+        let clampedX = max(0, min(canvasPoint.x, CanvasConstants.a4Width))
+        let clampedY = max(0, min(canvasPoint.y, CanvasConstants.a4Height))
+        
+        data.points.append(StrokeData.Point(x: clampedX, y: clampedY))
         stroke.data = .stroke(data)
         currentStroke = stroke
     }
@@ -399,9 +450,33 @@ class CanvasViewModel: ObservableObject {
         do {
             let data = try StorageManager.shared.loadCanvas(id: noteId)
             self.elements = data.elements
+            Task {
+                await preloadImages()
+            }
             sanitizeElements()
         } catch {
             print("Error loading canvas: \(error)")
+        }
+    }
+    
+    private func preloadImages() async {
+        let currentElements = elements
+        let idsAndData = currentElements.compactMap { element -> (UUID, String)? in
+            if case .image(let data) = element.data {
+                return (element.id, data.src)
+            }
+            return nil
+        }
+        
+        for (id, src) in idsAndData {
+            // Perform decoding on a background thread
+            if let data = Data(base64Encoded: src),
+               let uiImage = UIImage(data: data) {
+                // Update the cache on the main thread
+                await MainActor.run {
+                    self.imageCache[id] = uiImage
+                }
+            }
         }
     }
     
@@ -458,9 +533,14 @@ class CanvasViewModel: ObservableObject {
     }
     
     func saveCanvas() {
+        saveTrigger.send()
+    }
+    
+    private func performSave() {
         let data = CanvasData(elements: elements)
         do {
             try StorageManager.shared.saveCanvas(id: noteId, data: data)
+            print("Canvas saved successfully")
         } catch {
             print("Error saving canvas: \(error)")
         }
@@ -468,7 +548,18 @@ class CanvasViewModel: ObservableObject {
     
     func addElement(_ element: CanvasElementData) {
         saveState()
-        elements.append(element)
+        var clampedElement = element
+        clampedElement.x = max(0, min(element.x, CanvasConstants.a4Width - element.width))
+        clampedElement.y = max(0, min(element.y, CanvasConstants.a4Height - element.height))
+        
+        // Dynamic caching for new images
+        if case .image(let data) = clampedElement.data {
+            if let uiImage = UIImage(data: Data(base64Encoded: data.src) ?? Data()) {
+                imageCache[clampedElement.id] = uiImage
+            }
+        }
+        
+        elements.append(clampedElement)
         saveCanvas()
     }
     
@@ -482,13 +573,16 @@ class CanvasViewModel: ObservableObject {
             color: "#34C759" // Green
         )
         
+        let width: CGFloat = 300
+        let height: CGFloat = 200
+        
         let newElement = CanvasElementData(
             id: UUID(),
             type: .graph,
-            x: 100, // Default position
-            y: 100,
-            width: 300,
-            height: 200,
+            x: (CanvasConstants.a4Width - width) / 2, // Center on page
+            y: (CanvasConstants.a4Height - height) / 2,
+            width: width,
+            height: height,
             zIndex: elements.count,
             data: .graph(graphData)
         )
@@ -507,14 +601,18 @@ class CanvasViewModel: ObservableObject {
             context: nil
         )
         
-        let width = max(boundingRect.width + 40, 100) // Min width 100, add padding
-        let height = max(boundingRect.height + 40, 50) // Min height 50, add padding
+        let width = max(boundingRect.width + 40, 100)
+        let height = max(boundingRect.height + 40, 50)
+        
+        // Clamp position to boundary
+        let clampedX = max(0, min(point.x, CanvasConstants.a4Width - width))
+        let clampedY = max(0, min(point.y, CanvasConstants.a4Height - height))
         
         let newElement = CanvasElementData(
             id: UUID(),
             type: .text,
-            x: point.x,
-            y: point.y,
+            x: clampedX,
+            y: clampedY,
             width: width,
             height: height,
             zIndex: elements.count,
@@ -601,14 +699,21 @@ class CanvasViewModel: ObservableObject {
         // Remove original elements
         elements.removeAll(where: { selectedElementIds.contains($0.id) })
         
+        let width = bounds.width
+        let height = bounds.height
+        
+        // Clamp to boundary
+        let clampedX = max(0, min(bounds.minX, CanvasConstants.a4Width - width))
+        let clampedY = max(0, min(bounds.minY, CanvasConstants.a4Height - height))
+        
         // Create new merged element
         let newElement = CanvasElementData(
             id: UUID(),
             type: .image,
-            x: bounds.minX,
-            y: bounds.minY,
-            width: bounds.width,
-            height: bounds.height,
+            x: clampedX,
+            y: clampedY,
+            width: width,
+            height: height,
             zIndex: elements.count,
             data: .image(ImageData(src: image.pngData()?.base64EncodedString() ?? "", originalWidth: image.size.width, originalHeight: image.size.height))
         )
@@ -664,10 +769,16 @@ class CanvasViewModel: ObservableObject {
                 let relativeX = initialElement.x - initialBounds.minX
                 let relativeY = initialElement.y - initialBounds.minY
                 
-                element.x = initialBounds.minX + (relativeX * scaleX)
-                element.y = initialBounds.minY + (relativeY * scaleY)
-                element.width = initialElement.width * scaleX
-                element.height = initialElement.height * scaleY
+                let newX = initialBounds.minX + (relativeX * scaleX)
+                let newY = initialBounds.minY + (relativeY * scaleY)
+                let newWidth = initialElement.width * scaleX
+                let newHeight = initialElement.height * scaleY
+                
+                // Clamp to A4
+                element.x = max(0, min(newX, CanvasConstants.a4Width - newWidth))
+                element.y = max(0, min(newY, CanvasConstants.a4Height - newHeight))
+                element.width = min(newWidth, CanvasConstants.a4Width - element.x)
+                element.height = min(newHeight, CanvasConstants.a4Height - element.y)
                 
                 // Scale content
                 if case .stroke(let data) = initialElement.data {

@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct BlackboardView: View {
     var note: NoteItem
@@ -11,15 +12,19 @@ struct BlackboardView: View {
     
     var body: some View {
         GeometryReader { geometry in
-            ZStack {
-                Color(hex: "#1a1f2e") // Blackboard background
+            ZStack(alignment: .topLeading) {
+                Color(hex: CanvasConstants.workspaceColor) // Workspace background
                     .ignoresSafeArea()
                 
                 gestureReceiver
                 
                 canvasContent
+                
+                toolbarOverlay
             }
-            .overlay(toolbarOverlay)
+            .onAppear {
+                viewModel.centerCanvas(in: geometry.size)
+            }
         }
         .navigationTitle(note.title)
         .toolbar {
@@ -29,10 +34,19 @@ struct BlackboardView: View {
                 }
             }
         }
-        .sheet(isPresented: $isShowingDocumentPicker) {
-            DocumentPicker { url in
-                selectedPDFURL = url
-                isShowingPDFSelection = true
+        .fileImporter(
+            isPresented: $isShowingDocumentPicker,
+            allowedContentTypes: [.pdf],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                print("BlackboardView: fileImporter success: \(urls)")
+                if let url = urls.first {
+                    handleImportedPDF(url: url)
+                }
+            case .failure(let error):
+                print("BlackboardView: fileImporter failed: \(error.localizedDescription)")
             }
         }
         .fullScreenCover(isPresented: $isShowingPDFSelection) {
@@ -65,6 +79,9 @@ struct BlackboardView: View {
                 ))
             }
         }
+        .onChange(of: isShowingDocumentPicker) { newValue in
+            print("BlackboardView: isShowingDocumentPicker changed to \(newValue)")
+        }
     }
     
     @State private var selectedTool: ToolbarView.ToolType = .select
@@ -83,6 +100,13 @@ struct BlackboardView: View {
     
     var canvasContent: some View {
         ZStack(alignment: .topLeading) {
+            // A4 Paper Background
+            Rectangle()
+                .fill(Color(hex: CanvasConstants.paperColor))
+                .frame(width: CanvasConstants.a4Width, height: CanvasConstants.a4Height)
+                .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
+                .allowsHitTesting(false)
+            
             if viewModel.elements.isEmpty {
                 VStack(spacing: 10) {
                     Text("Select a tool below")
@@ -91,11 +115,13 @@ struct BlackboardView: View {
                 }
                 .font(.title)
                 .foregroundColor(.gray.opacity(0.5))
+                .frame(width: CanvasConstants.a4Width, height: CanvasConstants.a4Height)
             }
             
             ForEach(viewModel.elements) { element in
                 CanvasElementView(
                     element: element,
+                    viewModel: viewModel,
                     isSelected: viewModel.selectedElementIds.contains(element.id),
                     onDelete: {
                         viewModel.removeElement(id: element.id)
@@ -106,6 +132,7 @@ struct BlackboardView: View {
                         viewModel.editingElementId = nil
                     }
                 )
+                .equatable()
                 .onTapGesture(count: 2) {
                     if case .text = element.data {
                         viewModel.selectElement(id: element.id)
@@ -231,7 +258,7 @@ struct BlackboardView: View {
                             
                             let snapshotView = ZStack(alignment: .topLeading) {
                                 ForEach(tempElements) { element in
-                                    CanvasElementView(element: element, isSelected: false, onDelete: {})
+                                    CanvasElementView(element: element, viewModel: viewModel, isSelected: false, onDelete: {})
                                 }
                             }
                             .frame(width: bounds.width, height: bounds.height)
@@ -260,7 +287,8 @@ struct BlackboardView: View {
                 .position(x: box.midX, y: box.midY)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity) // Ensure it fills screen
+        .frame(width: CanvasConstants.a4Width, height: CanvasConstants.a4Height) // Enforce boundary
+        .clipped() // Hide overflow
         .scaleEffect(viewModel.scale, anchor: .topLeading)
         .offset(viewModel.offset)
     }
@@ -286,6 +314,7 @@ struct BlackboardView: View {
                         isShowingChat.toggle()
                     },
                     onImportPDF: {
+                        print("ToolbarView: Import PDF tapped")
                         isShowingDocumentPicker = true
                     },
                     onImportImage: {
@@ -397,6 +426,7 @@ struct BlackboardView: View {
                 .zIndex(100)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
 
@@ -420,7 +450,7 @@ struct BlackboardView: View {
         let snapshotView = ZStack(alignment: .topLeading) {
             Color.black // Ensure strokes are visible for AI
             ForEach(tempElements) { element in
-                CanvasElementView(element: element, isSelected: false, onDelete: {})
+                CanvasElementView(element: element, viewModel: viewModel, isSelected: false, onDelete: {})
             }
         }
         .frame(width: bounds.width, height: bounds.height)
@@ -446,6 +476,38 @@ struct BlackboardView: View {
             } catch {
                 print("AI Error: \(error)")
             }
+        }
+    }
+    
+    private func handleImportedPDF(url: URL) {
+        // Start accessing the security-scoped resource
+        guard url.startAccessingSecurityScopedResource() else {
+            print("BlackboardView: Error: Could not access security scoped resource for \(url)")
+            return
+        }
+        
+        defer { url.stopAccessingSecurityScopedResource() }
+        
+        do {
+            // Create a temporary file URL
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension("pdf")
+            
+            // Copy the file to the temporary location
+            try FileManager.default.copyItem(at: url, to: tempURL)
+            print("BlackboardView: File copied to \(tempURL)")
+            
+            // Update state on main thread
+            DispatchQueue.main.async {
+                self.selectedPDFURL = tempURL
+                // Delay to ensure any previous modal is fully dismissed
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    self.isShowingPDFSelection = true
+                }
+            }
+        } catch {
+            print("BlackboardView: Error copying file: \(error)")
         }
     }
     }
@@ -491,4 +553,5 @@ struct ImagePicker: UIViewControllerRepresentable {
             parent.presentationMode.wrappedValue.dismiss()
         }
     }
+    
 }

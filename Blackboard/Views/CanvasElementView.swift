@@ -4,6 +4,7 @@ import LaTeXSwiftUI
 
 struct CanvasElementView: View {
     let element: CanvasElementData
+    @ObservedObject var viewModel: CanvasViewModel
     let isSelected: Bool
     var onDelete: () -> Void
     var isEditing: Bool = false
@@ -62,10 +63,19 @@ struct CanvasElementView: View {
                     )
             
             case .image(let data):
-                if let uiImage = UIImage(data: Data(base64Encoded: data.src) ?? Data()) {
+                if let cachedImage = viewModel.imageCache[element.id] {
+                    Image(uiImage: cachedImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                } else if let uiImage = UIImage(data: Data(base64Encoded: data.src) ?? Data()) {
+                    // Fallback decoding if not in cache (though pre-loading should handle it)
                     Image(uiImage: uiImage)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
+                        .onAppear {
+                            // Optionally populate cache if missing (lazy loading)
+                            viewModel.imageCache[element.id] = uiImage
+                        }
                 } else {
                     Rectangle()
                         .fill(Color.gray.opacity(0.2))
@@ -104,6 +114,14 @@ struct CanvasElementView: View {
             .position(x: element.x + element.width/2, y: element.y + element.height/2)
             : nil
         )
+    }
+}
+
+extension CanvasElementView: Equatable {
+    static func == (lhs: CanvasElementView, rhs: CanvasElementView) -> Bool {
+        return lhs.element == rhs.element &&
+            lhs.isSelected == rhs.isSelected &&
+            lhs.isEditing == rhs.isEditing
     }
 }
 

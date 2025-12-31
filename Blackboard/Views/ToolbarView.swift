@@ -96,7 +96,10 @@ struct ToolbarView: View {
                         Image(systemName: "sparkles")
                     }
                     
-                    Button(action: onImportPDF) {
+                    Button(action: {
+                        print("ToolbarView: Button tapped directly")
+                        onImportPDF()
+                    }) {
                         Image(systemName: "doc.text")
                     }
                     
