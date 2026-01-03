@@ -1,4 +1,5 @@
 import SwiftUI
+import PDFKit
 import UniformTypeIdentifiers
 
 struct BlackboardView: View {
@@ -50,8 +51,8 @@ struct BlackboardView: View {
             }
         }
         .fullScreenCover(isPresented: $isShowingPDFSelection) {
-            if let url = selectedPDFURL {
-                PDFSelectionView(pdfURL: url) { rect, image in
+            if let document = selectedPDFDocument {
+                PDFSelectionView(pdfDocument: document) { rect, image in
                     viewModel.addElement(CanvasElementData(
                         id: UUID(),
                         type: .image,
@@ -87,7 +88,7 @@ struct BlackboardView: View {
     @State private var selectedTool: ToolbarView.ToolType = .select
     @State private var isShowingDocumentPicker = false
     @State private var isShowingImagePicker = false
-    @State private var selectedPDFURL: URL?
+    @State private var selectedPDFDocument: PDFDocument?
     @State private var isMovingSelection = false
     @State private var isResizingSelection = false
     @State private var isShowingPDFSelection = false
@@ -362,6 +363,62 @@ struct BlackboardView: View {
                 }
             }
             
+            // Page Controls (Bottom Left)
+            VStack {
+                Spacer()
+                HStack {
+                    VStack(spacing: 8) {
+                        Button(action: { viewModel.previousPage() }) {
+                            Image(systemName: "chevron.up")
+                                .padding(10)
+                                .background(Color(UIColor.secondarySystemBackground))
+                                .clipShape(Circle())
+                        }
+                        .disabled(viewModel.isFirstPage)
+                        
+                        Text("\(viewModel.currentPageIndex + 1)/\(viewModel.pageCount)")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color(UIColor.secondarySystemBackground))
+                            .cornerRadius(4)
+                        
+                        Button(action: { viewModel.nextPage() }) {
+                            Image(systemName: "chevron.down")
+                                .padding(10)
+                                .background(Color(UIColor.secondarySystemBackground))
+                                .clipShape(Circle())
+                        }
+                        .disabled(viewModel.isLastPage)
+                        
+                        Divider()
+                            .frame(width: 30)
+                            .padding(.vertical, 4)
+                        
+                        Button(action: { viewModel.addPage() }) {
+                            Image(systemName: "plus.rectangle.on.rectangle")
+                                .padding(10)
+                                .background(Color(UIColor.secondarySystemBackground))
+                                .clipShape(Circle())
+                        }
+                        
+                        Button(action: { viewModel.deletePage(at: viewModel.currentPageIndex) }) {
+                            Image(systemName: "minus.rectangle")
+                                .foregroundColor(viewModel.canDeletePage ? .red : .gray)
+                                .padding(10)
+                                .background(Color(UIColor.secondarySystemBackground))
+                                .clipShape(Circle())
+                        }
+                        .disabled(!viewModel.canDeletePage)
+                    }
+                    .padding(.leading, 20)
+                    .padding(.bottom, 100)
+                    Spacer()
+                }
+            }
+            
             // Zoom Controls (Bottom Right)
             VStack {
                 Spacer()
@@ -448,7 +505,7 @@ struct BlackboardView: View {
         }
         
         let snapshotView = ZStack(alignment: .topLeading) {
-            Color.black // Ensure strokes are visible for AI
+            Color.white // White background so black strokes are visible to AI
             ForEach(tempElements) { element in
                 CanvasElementView(element: element, viewModel: viewModel, isSelected: false, onDelete: {})
             }
@@ -488,26 +545,15 @@ struct BlackboardView: View {
         
         defer { url.stopAccessingSecurityScopedResource() }
         
-        do {
-            // Create a temporary file URL
-            let tempURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString)
-                .appendingPathExtension("pdf")
-            
-            // Copy the file to the temporary location
-            try FileManager.default.copyItem(at: url, to: tempURL)
-            print("BlackboardView: File copied to \(tempURL)")
-            
-            // Update state on main thread
+        // Load PDF while security access is active (matching test_pdf approach)
+        if let document = PDFDocument(url: url) {
+            print("BlackboardView: Successfully loaded PDF with \(document.pageCount) pages")
             DispatchQueue.main.async {
-                self.selectedPDFURL = tempURL
-                // Delay to ensure any previous modal is fully dismissed
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    self.isShowingPDFSelection = true
-                }
+                self.selectedPDFDocument = document
+                self.isShowingPDFSelection = true
             }
-        } catch {
-            print("BlackboardView: Error copying file: \(error)")
+        } else {
+            print("BlackboardView: Failed to load PDF document")
         }
     }
     }

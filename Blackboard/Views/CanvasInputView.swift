@@ -1,23 +1,116 @@
 import SwiftUI
 import UIKit
 
+// MARK: - Custom Drawing View for Direct Touch Handling
+/// This custom UIView captures touch events directly to avoid the gesture recognition delay
+/// that causes the first portion of Apple Pencil strokes to be missed.
+class DrawingCanvasView: UIView {
+    weak var coordinator: CanvasInputView.Coordinator?
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isMultipleTouchEnabled = true
+        backgroundColor = .clear
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let coordinator = coordinator else { return }
+        
+        for touch in touches {
+            let location = touch.location(in: self)
+            
+            // Handle Apple Pencil touches for drawing
+            if touch.type == .pencil {
+                coordinator.handleDrawingTouchBegan(at: location, touch: touch)
+            }
+            // Handle finger touches for drawing if enabled
+            else if touch.type == .direct && coordinator.parent.isFingerDrawingEnabled {
+                let tool = coordinator.parent.selectedTool
+                if tool == .pen || tool == .eraser {
+                    coordinator.handleDrawingTouchBegan(at: location, touch: touch)
+                }
+            }
+        }
+    }
+    
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let coordinator = coordinator else { return }
+        
+        for touch in touches {
+            let location = touch.location(in: self)
+            
+            // Handle Apple Pencil touches for drawing
+            if touch.type == .pencil {
+                // Process coalesced touches for smoother strokes
+                // Pass the original touch for identity check, but use coalesced location
+                if let coalescedTouches = event?.coalescedTouches(for: touch) {
+                    for coalescedTouch in coalescedTouches {
+                        let coalescedLocation = coalescedTouch.location(in: self)
+                        // Pass original touch for identity comparison, coalesced location for drawing
+                        coordinator.handleDrawingTouchMoved(at: coalescedLocation, touch: touch)
+                    }
+                } else {
+                    coordinator.handleDrawingTouchMoved(at: location, touch: touch)
+                }
+            }
+            // Handle finger touches for drawing if enabled
+            else if touch.type == .direct && coordinator.parent.isFingerDrawingEnabled {
+                let tool = coordinator.parent.selectedTool
+                if tool == .pen || tool == .eraser {
+                    coordinator.handleDrawingTouchMoved(at: location, touch: touch)
+                }
+            }
+        }
+    }
+    
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let coordinator = coordinator else { return }
+        
+        for touch in touches {
+            // Handle Apple Pencil touches
+            if touch.type == .pencil {
+                coordinator.handleDrawingTouchEnded(touch: touch)
+            }
+            // Handle finger touches for drawing if enabled
+            else if touch.type == .direct && coordinator.parent.isFingerDrawingEnabled {
+                let tool = coordinator.parent.selectedTool
+                if tool == .pen || tool == .eraser {
+                    coordinator.handleDrawingTouchEnded(touch: touch)
+                }
+            }
+        }
+    }
+    
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let coordinator = coordinator else { return }
+        
+        for touch in touches {
+            if touch.type == .pencil {
+                coordinator.handleDrawingTouchEnded(touch: touch)
+            } else if touch.type == .direct && coordinator.parent.isFingerDrawingEnabled {
+                let tool = coordinator.parent.selectedTool
+                if tool == .pen || tool == .eraser {
+                    coordinator.handleDrawingTouchEnded(touch: touch)
+                }
+            }
+        }
+    }
+}
+
 struct CanvasInputView: UIViewRepresentable {
     @ObservedObject var viewModel: CanvasViewModel
     @Binding var selectedTool: ToolbarView.ToolType
     @Binding var isFingerDrawingEnabled: Bool
     
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
-        view.backgroundColor = .clear
-        view.isMultipleTouchEnabled = true
+    func makeUIView(context: Context) -> DrawingCanvasView {
+        let view = DrawingCanvasView()
+        view.coordinator = context.coordinator
         
-        // Pencil Pan (Drawing)
-        let pencilPan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePencilPan(_:)))
-        pencilPan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
-        pencilPan.maximumNumberOfTouches = 1
-        view.addGestureRecognizer(pencilPan)
-        
-        // Finger Pan (Scrolling / Selection)
+        // Finger Pan (Scrolling / Selection) - NOT for pencil drawing anymore
         let fingerPan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleFingerPan(_:)))
         fingerPan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         view.addGestureRecognizer(fingerPan)
@@ -43,25 +136,13 @@ struct CanvasInputView: UIViewRepresentable {
         return view
     }
     
-    func updateUIView(_ uiView: UIView, context: Context) {
+    func updateUIView(_ uiView: DrawingCanvasView, context: Context) {
         context.coordinator.parent = self
         
         // Update gesture configurations based on settings
         if let gestures = uiView.gestureRecognizers {
-            // Pencil Pan (Index 0)
-            if let pencilPan = gestures.first as? UIPanGestureRecognizer {
-                if isFingerDrawingEnabled {
-                    pencilPan.allowedTouchTypes = [
-                        NSNumber(value: UITouch.TouchType.pencil.rawValue),
-                        NSNumber(value: UITouch.TouchType.direct.rawValue)
-                    ]
-                } else {
-                    pencilPan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
-                }
-            }
-            
-            // Finger Pan (Index 1)
-            if gestures.count > 1, let fingerPan = gestures[1] as? UIPanGestureRecognizer {
+            // Finger Pan (Index 0 now - we removed pencil pan gesture)
+            if let fingerPan = gestures.first as? UIPanGestureRecognizer {
                 if selectedTool == .hand || selectedTool == .select || selectedTool == .text {
                     // Non-drawing tools always pan/select with 1 finger
                     fingerPan.minimumNumberOfTouches = 1
@@ -71,8 +152,7 @@ struct CanvasInputView: UIViewRepresentable {
                         // If finger drawing is enabled, finger pan (scrolling) requires 2 touches
                         fingerPan.minimumNumberOfTouches = 2
                     } else {
-                        // If finger drawing is disabled, we still capture 1 touch but will ignore it in the handler
-                        // to prevent it from doing anything (like scrolling)
+                        // Finger drawing disabled: single finger can pan
                         fingerPan.minimumNumberOfTouches = 1
                     }
                 }
@@ -91,40 +171,72 @@ struct CanvasInputView: UIViewRepresentable {
         // State for selection moving
         var isMovingSelection = false
         
+        // Track active drawing touch to handle multi-touch scenarios
+        private var activeDrawingTouch: UITouch?
+        
         init(_ parent: CanvasInputView) {
             self.parent = parent
         }
         
-        @objc func handlePencilPan(_ gesture: UIPanGestureRecognizer) {
-            guard let view = view else { return }
-            let location = gesture.location(in: view)
+        // MARK: - Direct Touch Handling for Drawing (No Gesture Recognition Delay)
+        
+        func handleDrawingTouchBegan(at location: CGPoint, touch: UITouch) {
+            // Only track one drawing touch at a time
+            guard activeDrawingTouch == nil else { return }
+            activeDrawingTouch = touch
             
-            switch gesture.state {
-            case .began:
-                if parent.selectedTool == .pen {
-                    parent.viewModel.startStroke(at: location)
-                } else if parent.selectedTool == .eraser {
-                    parent.viewModel.eraseElement(at: location)
-                } else if parent.selectedTool == .select {
-                    handleSelectionStart(location: location)
-                }
-            case .changed:
-                if parent.selectedTool == .pen {
-                    parent.viewModel.continueStroke(at: location)
-                } else if parent.selectedTool == .eraser {
-                    parent.viewModel.eraseElement(at: location)
-                } else if parent.selectedTool == .select {
-                    handleSelectionChange(gesture: gesture, location: location)
-                }
-            case .ended, .cancelled:
-                if parent.selectedTool == .pen {
-                    parent.viewModel.endStroke()
-                } else if parent.selectedTool == .select {
-                    handleSelectionEnd()
-                }
-            default: break
+            if parent.selectedTool == .pen {
+                parent.viewModel.startStroke(at: location)
+            } else if parent.selectedTool == .eraser {
+                parent.viewModel.eraseElement(at: location)
+            } else if parent.selectedTool == .select {
+                handleSelectionStart(location: location)
             }
         }
+        
+        // Store initial touch location for calculating translation
+        private var initialTouchLocation: CGPoint?
+        
+        func handleDrawingTouchMoved(at location: CGPoint, touch: UITouch) {
+            // Only process the active drawing touch
+            guard touch === activeDrawingTouch else { return }
+            
+            if parent.selectedTool == .pen {
+                parent.viewModel.continueStroke(at: location)
+            } else if parent.selectedTool == .eraser {
+                parent.viewModel.eraseElement(at: location)
+            } else if parent.selectedTool == .select {
+                // Handle selection with pencil
+                if isMovingSelection {
+                    // Calculate translation from initial touch
+                    if let initial = initialTouchLocation {
+                        let translation = CGSize(
+                            width: location.x - initial.x,
+                            height: location.y - initial.y
+                        )
+                        parent.viewModel.moveSelection(translation: translation)
+                    }
+                } else if parent.viewModel.selectionBox != nil {
+                    parent.viewModel.updateSelection(to: location)
+                }
+            }
+        }
+        
+        func handleDrawingTouchEnded(touch: UITouch) {
+            // Only process the active drawing touch
+            guard touch === activeDrawingTouch else { return }
+            activeDrawingTouch = nil
+            initialTouchLocation = nil
+            
+            if parent.selectedTool == .pen {
+                parent.viewModel.endStroke()
+            } else if parent.selectedTool == .select {
+                handleSelectionEnd()
+            }
+            // Eraser doesn't need end handling
+        }
+        
+        // MARK: - Gesture Recognizer Handlers (for non-drawing gestures)
         
         @objc func handleFingerPan(_ gesture: UIPanGestureRecognizer) {
             guard let view = view else { return }
@@ -140,28 +252,14 @@ struct CanvasInputView: UIViewRepresentable {
                 if parent.selectedTool == .select {
                     handleSelectionChange(gesture: gesture, location: location)
                 } else if parent.selectedTool == .hand {
-                    parent.viewModel.handleDrag(translation: CGSize(width: translation.x, height: translation.y))
-                } else if parent.selectedTool == .pen || parent.selectedTool == .eraser {
-                    if parent.isFingerDrawingEnabled {
-                        // 2-finger pan (configured in updateUIView)
-                        parent.viewModel.handleDrag(translation: CGSize(width: translation.x, height: translation.y))
-                    } else {
-                        // Finger drawing disabled: Do nothing (ignore finger)
-                    }
-                } else {
-                    // Default fallback (e.g. text tool)
+                    // Only hand tool allows canvas panning
                     parent.viewModel.handleDrag(translation: CGSize(width: translation.x, height: translation.y))
                 }
+                // Other tools (pen, eraser, text) do NOT pan the canvas
             case .ended, .cancelled:
                 if parent.selectedTool == .select {
                     handleSelectionEnd()
                 } else if parent.selectedTool == .hand {
-                    parent.viewModel.endDrag(translation: CGSize(width: translation.x, height: translation.y))
-                } else if parent.selectedTool == .pen || parent.selectedTool == .eraser {
-                    if parent.isFingerDrawingEnabled {
-                        parent.viewModel.endDrag(translation: CGSize(width: translation.x, height: translation.y))
-                    }
-                } else {
                     parent.viewModel.endDrag(translation: CGSize(width: translation.x, height: translation.y))
                 }
             default: break
@@ -174,12 +272,6 @@ struct CanvasInputView: UIViewRepresentable {
                 parent.viewModel.handleMagnification(value: gesture.scale)
             case .ended, .cancelled:
                 parent.viewModel.endMagnification(value: gesture.scale)
-                gesture.scale = 1.0 // Reset scale? No, handleMagnification multiplies.
-                // Wait, handleMagnification: scale = lastScale * value.
-                // UIPinchGestureRecognizer scale is cumulative.
-                // So passing gesture.scale is correct if lastScale is fixed at start.
-                // But CanvasViewModel updates lastScale only on endMagnification.
-                // So gesture.scale (cumulative) is correct.
             default: break
             }
         }
@@ -212,6 +304,9 @@ struct CanvasInputView: UIViewRepresentable {
         // MARK: - Selection Helpers
         
         private func handleSelectionStart(location: CGPoint) {
+            // Store initial location for pencil translation calculation
+            initialTouchLocation = location
+            
             if parent.viewModel.isPointInSelectedElement(location) {
                 isMovingSelection = true
                 parent.viewModel.startMovingSelection()

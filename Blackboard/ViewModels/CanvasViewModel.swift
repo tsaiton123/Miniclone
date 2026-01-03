@@ -3,7 +3,19 @@ import Combine
 import UIKit
 
 class CanvasViewModel: ObservableObject {
-    @Published var elements: [CanvasElementData] = []
+    // Multi-page support
+    @Published var pages: [PageData] = [PageData(elements: [])]
+    @Published var currentPageIndex: Int = 0
+    
+    // Computed property for current page elements
+    var elements: [CanvasElementData] {
+        get { pages[safe: currentPageIndex]?.elements ?? [] }
+        set {
+            guard pages.indices.contains(currentPageIndex) else { return }
+            pages[currentPageIndex].elements = newValue
+        }
+    }
+    
     @Published var selectedElementIds: Set<UUID> = []
     @Published var scale: CGFloat = 1.0
     @Published var offset: CGSize = .zero
@@ -16,10 +28,10 @@ class CanvasViewModel: ObservableObject {
     @Published var imageCache: [UUID: UIImage] = [:]
     
     // Styling
-    @Published var currentStrokeColor: String = "#ffffff"
+    @Published var currentStrokeColor: String = "#000000"
     @Published var currentStrokeWidth: CGFloat = 2.0
     
-    // Undo/Redo
+    // Undo/Redo (per-page)
     private var undoStack: [[CanvasElementData]] = []
     private var redoStack: [[CanvasElementData]] = []
     
@@ -30,6 +42,12 @@ class CanvasViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var hasCenteredInitial = false
     private let saveTrigger = PassthroughSubject<Void, Never>()
+    
+    // Page management computed properties
+    var pageCount: Int { pages.count }
+    var canDeletePage: Bool { pages.count > 1 }
+    var isFirstPage: Bool { currentPageIndex == 0 }
+    var isLastPage: Bool { currentPageIndex >= pages.count - 1 }
     
     init(noteId: UUID) {
         self.noteId = noteId
@@ -445,17 +463,69 @@ class CanvasViewModel: ObservableObject {
     
     var canUndo: Bool { !undoStack.isEmpty }
     var canRedo: Bool { !redoStack.isEmpty }
+    
+    // MARK: - Page Management
+    
+    func addPage(after index: Int? = nil) {
+        let insertIndex = (index ?? currentPageIndex) + 1
+        let newPage = PageData(elements: [])
+        pages.insert(newPage, at: min(insertIndex, pages.count))
+        currentPageIndex = min(insertIndex, pages.count - 1)
+        clearSelection()
+        undoStack.removeAll()
+        redoStack.removeAll()
+        saveCanvas()
+    }
+    
+    func deletePage(at index: Int) {
+        guard canDeletePage, pages.indices.contains(index) else { return }
+        pages.remove(at: index)
+        // Adjust current page index if needed
+        if currentPageIndex >= pages.count {
+            currentPageIndex = pages.count - 1
+        }
+        clearSelection()
+        undoStack.removeAll()
+        redoStack.removeAll()
+        saveCanvas()
+    }
+    
+    func goToPage(_ index: Int) {
+        guard pages.indices.contains(index), index != currentPageIndex else { return }
+        clearSelection()
+        undoStack.removeAll()
+        redoStack.removeAll()
+        currentPageIndex = index
+        Task {
+            await preloadImages()
+        }
+    }
+    
+    func nextPage() {
+        if currentPageIndex < pages.count - 1 {
+            goToPage(currentPageIndex + 1)
+        }
+    }
+    
+    func previousPage() {
+        if currentPageIndex > 0 {
+            goToPage(currentPageIndex - 1)
+        }
+    }
 
     func loadCanvas() {
         do {
             let data = try StorageManager.shared.loadCanvas(id: noteId)
-            self.elements = data.elements
+            self.pages = data.pages.isEmpty ? [PageData(elements: [])] : data.pages
+            self.currentPageIndex = min(data.currentPageIndex, pages.count - 1)
             Task {
                 await preloadImages()
             }
             sanitizeElements()
         } catch {
             print("Error loading canvas: \(error)")
+            self.pages = [PageData(elements: [])]
+            self.currentPageIndex = 0
         }
     }
     
@@ -537,10 +607,10 @@ class CanvasViewModel: ObservableObject {
     }
     
     private func performSave() {
-        let data = CanvasData(elements: elements)
+        let data = CanvasData(pages: pages, currentPageIndex: currentPageIndex)
         do {
             try StorageManager.shared.saveCanvas(id: noteId, data: data)
-            print("Canvas saved successfully")
+            print("Canvas saved successfully (\(pages.count) pages)")
         } catch {
             print("Error saving canvas: \(error)")
         }
@@ -616,7 +686,7 @@ class CanvasViewModel: ObservableObject {
             width: width,
             height: height,
             zIndex: elements.count,
-            data: .text(TextData(text: text, fontSize: 20, fontFamily: "Caveat", color: "#ffffff"))
+            data: .text(TextData(text: text, fontSize: 20, fontFamily: "Caveat", color: "#000000"))
         )
         
         addElement(newElement)
@@ -800,5 +870,12 @@ class CanvasViewModel: ObservableObject {
         initialSelectionBounds = nil
         initialSelectedElements.removeAll()
         saveCanvas()
+    }
+}
+
+// MARK: - Safe Array Subscript
+extension Array {
+    subscript(safe index: Index) -> Element? {
+        return indices.contains(index) ? self[index] : nil
     }
 }

@@ -1,11 +1,67 @@
 import Foundation
 import SwiftUI
 
-// MARK: - Canvas Data Structure
-struct CanvasData: Codable {
-    var version: String = "1.0"
-    var savedAt: Date = Date()
+// MARK: - Page Data Structure
+struct PageData: Codable, Identifiable, Equatable {
+    var id: UUID = UUID()
     var elements: [CanvasElementData]
+    
+    init(id: UUID = UUID(), elements: [CanvasElementData] = []) {
+        self.id = id
+        self.elements = elements
+    }
+}
+
+// MARK: - Canvas Data Structure (Multi-Page)
+struct CanvasData: Codable {
+    var version: String = "1.1"
+    var savedAt: Date = Date()
+    var pages: [PageData]
+    var currentPageIndex: Int = 0
+    
+    // Default initializer
+    init(pages: [PageData] = [PageData(elements: [])], currentPageIndex: Int = 0) {
+        self.pages = pages.isEmpty ? [PageData(elements: [])] : pages
+        self.currentPageIndex = currentPageIndex
+    }
+    
+    // Migration initializer for old format
+    init(elements: [CanvasElementData]) {
+        self.pages = [PageData(elements: elements)]
+        self.currentPageIndex = 0
+    }
+    
+    // Custom decoding for backward compatibility
+    enum CodingKeys: String, CodingKey {
+        case version, savedAt, pages, currentPageIndex, elements
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        version = (try? container.decode(String.self, forKey: .version)) ?? "1.0"
+        savedAt = (try? container.decode(Date.self, forKey: .savedAt)) ?? Date()
+        currentPageIndex = (try? container.decode(Int.self, forKey: .currentPageIndex)) ?? 0
+        
+        // Try new multi-page format first
+        if let decodedPages = try? container.decode([PageData].self, forKey: .pages), !decodedPages.isEmpty {
+            pages = decodedPages
+        } else if let elements = try? container.decode([CanvasElementData].self, forKey: .elements) {
+            // Migrate from old single-page format
+            pages = [PageData(elements: elements)]
+        } else {
+            // Empty document
+            pages = [PageData(elements: [])]
+        }
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(version, forKey: .version)
+        try container.encode(savedAt, forKey: .savedAt)
+        try container.encode(pages, forKey: .pages)
+        try container.encode(currentPageIndex, forKey: .currentPageIndex)
+    }
 }
 
 // MARK: - Element Data Wrapper

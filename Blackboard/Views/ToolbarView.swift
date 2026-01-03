@@ -25,7 +25,7 @@ struct ToolbarView: View {
         case text
     }
     
-    let colors = ["#ffffff", "#ff3b30", "#34c759", "#007aff", "#ffcc00", "#af52de"]
+    let colors = ["#000000", "#ff3b30", "#34c759", "#007aff", "#ffcc00", "#af52de"]
     
     var body: some View {
         VStack(spacing: 12) {
