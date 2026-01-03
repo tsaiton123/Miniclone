@@ -123,14 +123,6 @@ struct CanvasInputView: UIViewRepresentable {
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
         view.addGestureRecognizer(tap)
         
-        // Double Tap (Add Text shortcut)
-        let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleDoubleTap(_:)))
-        doubleTap.numberOfTapsRequired = 2
-        view.addGestureRecognizer(doubleTap)
-        
-        // Ensure single tap fails if double tap detects
-        tap.require(toFail: doubleTap)
-        
         context.coordinator.view = view
         
         return view
@@ -267,11 +259,16 @@ struct CanvasInputView: UIViewRepresentable {
         }
         
         @objc func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+            // Only allow pinch zoom when hand tool is selected
+            guard parent.selectedTool == .hand else { return }
+            guard let view = view else { return }
+            let center = gesture.location(in: view)
+            
             switch gesture.state {
             case .changed:
-                parent.viewModel.handleMagnification(value: gesture.scale)
+                parent.viewModel.handleMagnification(value: gesture.scale, center: center)
             case .ended, .cancelled:
-                parent.viewModel.endMagnification(value: gesture.scale)
+                parent.viewModel.endMagnification(value: gesture.scale, center: center)
             default: break
             }
         }
@@ -291,15 +288,7 @@ struct CanvasInputView: UIViewRepresentable {
             }
         }
         
-        @objc func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
-            guard let view = view else { return }
-            let location = gesture.location(in: view)
-            
-            let canvasX = (location.x - parent.viewModel.offset.width) / parent.viewModel.scale
-            let canvasY = (location.y - parent.viewModel.offset.height) / parent.viewModel.scale
-            
-            parent.viewModel.addText("New Text", at: CGPoint(x: canvasX - 100, y: canvasY - 25))
-        }
+
         
         // MARK: - Selection Helpers
         

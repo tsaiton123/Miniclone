@@ -75,13 +75,26 @@ class CanvasViewModel: ObservableObject {
         lastOffset = offset
     }
     
-    func handleMagnification(value: CGFloat) {
-        scale = lastScale * value
+    func handleMagnification(value: CGFloat, center: CGPoint) {
+        let newScale = lastScale * value
+        
+        // Calculate offset adjustment to keep the pinch center point stationary
+        // The point under the finger in canvas coordinates stays the same before and after scaling
+        let canvasPointX = (center.x - lastOffset.width) / lastScale
+        let canvasPointY = (center.y - lastOffset.height) / lastScale
+        
+        // After scaling, the same canvas point should still be under the finger
+        let newOffsetX = center.x - canvasPointX * newScale
+        let newOffsetY = center.y - canvasPointY * newScale
+        
+        scale = newScale
+        offset = CGSize(width: newOffsetX, height: newOffsetY)
     }
     
-    func endMagnification(value: CGFloat) {
-        handleMagnification(value: value)
+    func endMagnification(value: CGFloat, center: CGPoint) {
+        handleMagnification(value: value, center: center)
         lastScale = scale
+        lastOffset = offset
         saveCanvas()
     }
     

@@ -108,16 +108,6 @@ struct BlackboardView: View {
                 .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
                 .allowsHitTesting(false)
             
-            if viewModel.elements.isEmpty {
-                VStack(spacing: 10) {
-                    Text("Select a tool below")
-                    Text("or Double Tap to add text")
-                        .font(.subheadline)
-                }
-                .font(.title)
-                .foregroundColor(.gray.opacity(0.5))
-                .frame(width: CanvasConstants.a4Width, height: CanvasConstants.a4Height)
-            }
             
             ForEach(viewModel.elements) { element in
                 CanvasElementView(

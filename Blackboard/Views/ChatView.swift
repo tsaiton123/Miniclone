@@ -24,7 +24,7 @@ struct ChatView: View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Text("Blackboard AI")
+                Text("Cognote")
                     .font(.headline)
                 Spacer()
                 Button(action: { showSettings.toggle() }) {
