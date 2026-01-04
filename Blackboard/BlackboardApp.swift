@@ -17,15 +17,18 @@ struct BlackboardApp: App {
     }()
 
     @StateObject private var authManager = AuthenticationManager()
+    @StateObject private var subscriptionManager = SubscriptionManager()
 
     var body: some Scene {
         WindowGroup {
             if authManager.isAuthenticated {
                 ContentView()
                     .environmentObject(authManager)
+                    .environmentObject(subscriptionManager)
             } else {
                 LoginView()
                     .environmentObject(authManager)
+                    .environmentObject(subscriptionManager)
             }
         }
         .modelContainer(sharedModelContainer)

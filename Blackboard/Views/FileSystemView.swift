@@ -4,6 +4,7 @@ import SwiftData
 struct FileSystemView: View {
     @Environment(\.modelContext) private var modelContext
     @StateObject private var viewModel: FileSystemViewModel
+    @EnvironmentObject var subscriptionManager: SubscriptionManager
     @Query private var allItems: [NoteItem]
     
     @State private var isShowingCreateNote = false
@@ -11,9 +12,20 @@ struct FileSystemView: View {
     @State private var newItemTitle = ""
     @State private var itemToRename: NoteItem?
     @State private var renameTitle = ""
+    @State private var isShowingPaywall = false
     
     init(modelContext: ModelContext) {
         _viewModel = StateObject(wrappedValue: FileSystemViewModel(modelContext: modelContext))
+    }
+    
+    /// Count of notes (not folders) for free tier limit check
+    var noteCount: Int {
+        allItems.filter { !$0.isFolder }.count
+    }
+    
+    /// Whether the user can create more notes
+    var canCreateNote: Bool {
+        subscriptionManager.currentTier.hasUnlimitedNotes || noteCount < subscriptionManager.currentTier.maxNotes
     }
     
     var filteredItems: [NoteItem] {
@@ -133,8 +145,12 @@ struct FileSystemView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
                         Button(action: {
-                            newItemTitle = ""
-                            isShowingCreateNote = true
+                            if canCreateNote {
+                                newItemTitle = ""
+                                isShowingCreateNote = true
+                            } else {
+                                isShowingPaywall = true
+                            }
                         }) {
                             Label("New Note", systemImage: "doc.badge.plus")
                         }
@@ -174,6 +190,10 @@ struct FileSystemView: View {
                         viewModel.renameItem(item, newTitle: renameTitle)
                     }
                 }
+            }
+            .sheet(isPresented: $isShowingPaywall) {
+                PaywallView()
+                    .environmentObject(subscriptionManager)
             }
         }
     }

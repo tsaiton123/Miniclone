@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct BlackboardView: View {
     var note: NoteItem
     @StateObject private var viewModel: CanvasViewModel
+    @EnvironmentObject var subscriptionManager: SubscriptionManager
     
     init(note: NoteItem) {
         self.note = note
@@ -97,6 +98,7 @@ struct BlackboardView: View {
     @State private var isShowingSettings = false
     @State private var isFingerDrawingEnabled = false
     @State private var chatContext: String?
+    @State private var isShowingPaywall = false
     @StateObject private var geminiService = GeminiService()
     
     var canvasContent: some View {
@@ -201,36 +203,54 @@ struct BlackboardView: View {
                     
                     // Action Buttons
                     HStack(spacing: 12) {
-                        // Ask AI Menu
-                        Menu {
+                        // Ask AI Menu - Requires Pro subscription
+                        if subscriptionManager.currentTier.hasAIFeatures {
+                            Menu {
+                                Button(action: {
+                                    performAIAction(mode: .explain, box: box)
+                                }) {
+                                    Label("Explain", systemImage: "text.bubble")
+                                }
+                                
+                                Button(action: {
+                                    performAIAction(mode: .solve, box: box)
+                                }) {
+                                    Label("Solve", systemImage: "function")
+                                }
+                                
+                                Button(action: {
+                                    performAIAction(mode: .plot, box: box)
+                                }) {
+                                    Label("Plot", systemImage: "chart.xyaxis.line")
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "sparkles")
+                                    Text("Ask AI")
+                                }
+                                .font(.caption)
+                                .padding(6)
+                                .background(Color.blue)
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                                .shadow(radius: 2)
+                            }
+                        } else {
+                            // Show locked AI button that opens paywall
                             Button(action: {
-                                performAIAction(mode: .explain, box: box)
+                                isShowingPaywall = true
                             }) {
-                                Label("Explain", systemImage: "text.bubble")
+                                HStack(spacing: 4) {
+                                    Image(systemName: "lock.fill")
+                                    Text("Ask AI")
+                                }
+                                .font(.caption)
+                                .padding(6)
+                                .background(Color.gray)
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                                .shadow(radius: 2)
                             }
-                            
-                            Button(action: {
-                                performAIAction(mode: .solve, box: box)
-                            }) {
-                                Label("Solve", systemImage: "function")
-                            }
-                            
-                            Button(action: {
-                                performAIAction(mode: .plot, box: box)
-                            }) {
-                                Label("Plot", systemImage: "chart.xyaxis.line")
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "sparkles")
-                                Text("Ask AI")
-                            }
-                            .font(.caption)
-                            .padding(6)
-                            .background(Color.blue)
-                            .foregroundColor(.white)
-                            .cornerRadius(8)
-                            .shadow(radius: 2)
                         }
                         
                         // Merge Button
@@ -302,11 +322,19 @@ struct BlackboardView: View {
                         // Removed
                     },
                     onAskAI: {
-                        isShowingChat.toggle()
+                        if subscriptionManager.currentTier.hasAIFeatures {
+                            isShowingChat.toggle()
+                        } else {
+                            isShowingPaywall = true
+                        }
                     },
                     onImportPDF: {
-                        print("ToolbarView: Import PDF tapped")
-                        isShowingDocumentPicker = true
+                        if subscriptionManager.currentTier.hasPDFImport {
+                            print("ToolbarView: Import PDF tapped")
+                            isShowingDocumentPicker = true
+                        } else {
+                            isShowingPaywall = true
+                        }
                     },
                     onImportImage: {
                         isShowingImagePicker = true
@@ -334,6 +362,11 @@ struct BlackboardView: View {
             .sheet(isPresented: $isShowingSettings) {
                 NavigationView {
                     Form {
+                        Section(header: Text("Subscription")) {
+                            SubscriptionStatusView()
+                                .environmentObject(subscriptionManager)
+                        }
+                        
                         Section(header: Text("Input")) {
                             Toggle("Enable Finger Drawing", isOn: $isFingerDrawingEnabled)
                         }
@@ -351,6 +384,10 @@ struct BlackboardView: View {
                         }
                     }
                 }
+            }
+            .sheet(isPresented: $isShowingPaywall) {
+                PaywallView()
+                    .environmentObject(subscriptionManager)
             }
             
             // Page Controls (Bottom Left)
