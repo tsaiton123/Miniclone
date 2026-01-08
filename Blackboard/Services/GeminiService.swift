@@ -1,119 +1,95 @@
 import Foundation
 import Combine
-import GoogleGenerativeAI
 import UIKit
 
 class GeminiService: ObservableObject {
-    private var model: GenerativeModel?
-    private let apiKeyKey = "gemini_api_key"
+    // MARK: - Configuration
     
-    @Published var apiKey: String = "" {
-        didSet {
-            UserDefaults.standard.set(apiKey, forKey: apiKeyKey)
-            configureModel()
-        }
-    }
+    /// The base URL for the Gemini API proxy server
+    private let serverBaseURL = "https://gemini-proxy-147061267626.us-central1.run.app"
+    
+    // For local development, use:
+    // private let serverBaseURL = "http://localhost:8080"
+    
+    private let session: URLSession
     
     init() {
-        self.apiKey = UserDefaults.standard.string(forKey: apiKeyKey) ?? ""
-        configureModel()
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 120
+        self.session = URLSession(configuration: config)
     }
     
-    private func configureModel() {
-        guard !apiKey.isEmpty else {
-            model = nil
-            return
-        }
-        
-        let config = GenerationConfig(
-            temperature: 0.7,
-            topP: 0.95,
-            topK: 40,
-            maxOutputTokens: 2048
-        )
-        
-        model = GenerativeModel(
-            name: "gemini-2.0-flash-exp",
-            apiKey: apiKey,
-            generationConfig: config,
-            systemInstruction: ModelContent(role: "system", parts: [.text(systemPrompt)])
-        )
-    }
-    
-    private var systemPrompt: String {
-        """
-        You are an AI assistant that writes on a digital blackboard. Your responses will be rendered in beautiful handwriting.
-
-        IMPORTANT: Be concise and minimal. Only provide exactly what the user asks for.
-        
-        Use standard LaTeX formatting for mathematical expressions (e.g., $x^2 + y^2 = r^2$).
-
-        When the user asks you to plot a mathematical function, respond with ONLY the JSON tool call - no extra text:
-
-        ```json
-        {
-          "tool": "plot_function",
-          "expression": "x^2",
-          "xMin": -10,
-          "xMax": 10
-        }
-        ```
-
-        Do NOT add explanatory text before or after the JSON when plotting.
-
-        Supported mathematical expressions:
-        - Polynomials: x^2, x^3 - 3*x^2 + 2*x
-        - Trigonometric: sin(x), cos(x), tan(x)
-        - Exponential: exp(x), exp(-x^2/10)
-        - Math functions: sqrt(x), abs(x), log(x)
-        - Compound: sin(x) + cos(x), 2*sin(x) - cos(2*x)
-        - Rational: 1/x, 1/(x^2 + 1)
-
-        For other questions, be direct and concise - write as if teaching on a blackboard.
-        """
-    }
+    // MARK: - Public Methods
     
     func sendMessage(_ text: String, image: UIImage? = nil) async throws -> String {
-        guard let model = model else {
-            throw NSError(domain: "GeminiService", code: 1, userInfo: [NSLocalizedDescriptionKey: "API Key not configured"])
-        }
+        let endpoint = "\(serverBaseURL)/v1/chat"
         
-        var parts: [ModelContent.Part] = [.text(text)]
+        var body: [String: Any] = [
+            "message": text
+        ]
         
+        // Add image if provided
         if let image = image, let data = image.jpegData(compressionQuality: 0.8) {
-            parts.append(.jpeg(data))
+            body["image_base64"] = data.base64EncodedString()
         }
         
-        let content = ModelContent(role: "user", parts: parts)
-        let response = try await model.generateContent([content])
-        return response.text ?? ""
+        // Add device ID for potential rate limiting
+        if let deviceID = UIDevice.current.identifierForVendor?.uuidString {
+            body["device_id"] = deviceID
+        }
+        
+        let response: ChatResponse = try await makeRequest(to: endpoint, body: body)
+        
+        if response.success {
+            return response.response
+        } else {
+            throw GeminiError.serverError(response.error ?? "Unknown error")
+        }
     }
     
     enum AIMode {
         case explain
         case solve
         case plot
+        
+        var stringValue: String {
+            switch self {
+            case .explain: return "explain"
+            case .solve: return "solve"
+            case .plot: return "plot"
+            }
+        }
     }
     
     func sendSelectionContext(_ context: String, image: UIImage? = nil, mode: AIMode) async throws -> String {
-        let instruction: String
-        switch mode {
-        case .explain:
-            instruction = "Explain the following content clearly and concisely."
-        case .solve:
-            instruction = "Solve the mathematical problem in the following content. Show step-by-step reasoning."
-        case .plot:
-            instruction = "Identify the mathematical function in the content and plot it. Return ONLY the JSON for plotting. Do not provide any text explanation."
+        let endpoint = "\(serverBaseURL)/v1/analyze"
+        
+        var body: [String: Any] = [
+            "context": context,
+            "mode": mode.stringValue
+        ]
+        
+        // Add image if provided
+        if let image = image, let data = image.jpegData(compressionQuality: 0.8) {
+            body["image_base64"] = data.base64EncodedString()
         }
         
-        let prompt = """
-        \(instruction)
+        // Add device ID for potential rate limiting
+        if let deviceID = UIDevice.current.identifierForVendor?.uuidString {
+            body["device_id"] = deviceID
+        }
         
-        Context from Blackboard Selection:
-        \(context)
-        """
-        return try await sendMessage(prompt, image: image)
+        let response: ChatResponse = try await makeRequest(to: endpoint, body: body)
+        
+        if response.success {
+            return response.response
+        } else {
+            throw GeminiError.serverError(response.error ?? "Unknown error")
+        }
     }
+    
+    // MARK: - Response Parsing
     
     struct GraphCommand: Codable {
         let tool: String
@@ -149,5 +125,74 @@ class GeminiService: ObservableObject {
         }
         
         return (response, nil)
+    }
+    
+    // MARK: - Private Helpers
+    
+    private struct ChatResponse: Codable {
+        let response: String
+        let success: Bool
+        let error: String?
+    }
+    
+    private func makeRequest<T: Codable>(to endpoint: String, body: [String: Any]) async throws -> T {
+        guard let url = URL(string: endpoint) else {
+            throw GeminiError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        } catch {
+            throw GeminiError.encodingError
+        }
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw GeminiError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw GeminiError.httpError(statusCode: httpResponse.statusCode)
+        }
+        
+        do {
+            let decoder = JSONDecoder()
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            throw GeminiError.decodingError
+        }
+    }
+}
+
+// MARK: - Error Types
+
+enum GeminiError: LocalizedError {
+    case invalidURL
+    case encodingError
+    case invalidResponse
+    case httpError(statusCode: Int)
+    case decodingError
+    case serverError(String)
+    
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL:
+            return "Invalid server URL"
+        case .encodingError:
+            return "Failed to encode request"
+        case .invalidResponse:
+            return "Invalid response from server"
+        case .httpError(let statusCode):
+            return "Server error (HTTP \(statusCode))"
+        case .decodingError:
+            return "Failed to decode response"
+        case .serverError(let message):
+            return message
+        }
     }
 }

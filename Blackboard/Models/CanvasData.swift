@@ -148,14 +148,96 @@ struct ImageData: Codable {
     var originalHeight: CGFloat
 }
 
+// MARK: - Brush Types
+enum BrushType: String, Codable, CaseIterable {
+    case pen
+    case pencil
+    case marker
+    case highlighter
+    
+    /// Icon name for toolbar display
+    var iconName: String {
+        switch self {
+        case .pen: return "pencil.tip"
+        case .pencil: return "pencil"
+        case .marker: return "pencil.tip.crop.circle"
+        case .highlighter: return "highlighter"
+        }
+    }
+    
+    /// Display name for UI
+    var displayName: String {
+        rawValue.capitalized
+    }
+    
+    /// Opacity for the brush stroke
+    var opacity: Double {
+        switch self {
+        case .pen: return 1.0
+        case .pencil: return 0.85
+        case .marker: return 0.7
+        case .highlighter: return 0.4
+        }
+    }
+    
+    /// Width multiplier for different brush types
+    var widthMultiplier: CGFloat {
+        switch self {
+        case .pen: return 1.0
+        case .pencil: return 1.0
+        case .marker: return 2.0
+        case .highlighter: return 4.0
+        }
+    }
+    
+    /// Line cap style for the brush
+    var lineCap: CGLineCap {
+        switch self {
+        case .pen, .pencil: return .round
+        case .marker, .highlighter: return .butt
+        }
+    }
+    
+    /// Line join style for the brush
+    var lineJoin: CGLineJoin {
+        switch self {
+        case .pen, .pencil: return .round
+        case .marker, .highlighter: return .bevel
+        }
+    }
+}
+
 struct StrokeData: Codable {
     var points: [Point]
     var color: String
     var width: CGFloat
+    var brushType: BrushType
     
     struct Point: Codable, Equatable {
         var x: CGFloat
         var y: CGFloat
+    }
+    
+    // Convenience initializer with default brush type
+    init(points: [Point], color: String, width: CGFloat, brushType: BrushType = .pen) {
+        self.points = points
+        self.color = color
+        self.width = width
+        self.brushType = brushType
+    }
+    
+    // Custom decoding for backward compatibility
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        points = try container.decode([Point].self, forKey: .points)
+        color = try container.decode(String.self, forKey: .color)
+        width = try container.decode(CGFloat.self, forKey: .width)
+        // Default to .pen for old strokes that don't have brushType
+        brushType = (try? container.decode(BrushType.self, forKey: .brushType)) ?? .pen
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case points, color, width, brushType
     }
 }
 

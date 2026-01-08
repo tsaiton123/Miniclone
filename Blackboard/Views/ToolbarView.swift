@@ -4,6 +4,9 @@ struct ToolbarView: View {
     @Binding var selectedTool: ToolType
     @Binding var strokeColor: String
     @Binding var strokeWidth: CGFloat
+    @Binding var brushType: BrushType
+    var isDrawing: Bool = false
+    var onPenTapped: (() -> Void)? = nil
     
     var onAddGraph: () -> Void
     var onAskAI: () -> Void
@@ -29,34 +32,54 @@ struct ToolbarView: View {
     
     var body: some View {
         VStack(spacing: 12) {
-            // Styling Controls (Only visible when Pen is selected)
-            if selectedTool == .pen {
-                HStack(spacing: 12) {
-                    // Color Picker
-                    ForEach(colors, id: \.self) { color in
-                        Circle()
-                            .fill(Color(hex: color))
-                            .frame(width: 24, height: 24)
-                            .overlay(
-                                Circle()
-                                    .stroke(Color.white, lineWidth: strokeColor == color ? 2 : 0)
-                            )
-                            .onTapGesture {
-                                strokeColor = color
+            // Styling Controls (Only visible when Pen is selected and NOT drawing)
+            if selectedTool == .pen && !isDrawing {
+                VStack(spacing: 8) {
+                    // Brush Type Picker (compact)
+                    HStack(spacing: 4) {
+                        ForEach(BrushType.allCases, id: \.self) { type in
+                            Button(action: { brushType = type }) {
+                                Image(systemName: type.iconName)
+                                    .font(.system(size: 18))
+                                    .frame(width: 36, height: 36)
+                                    .background(brushType == type ? Color.blue.opacity(0.2) : Color.clear)
+                                    .foregroundColor(brushType == type ? .blue : .primary)
+                                    .cornerRadius(8)
                             }
+                            .help(type.displayName)
+                        }
                     }
                     
                     Divider()
-                        .frame(height: 20)
                     
-                    // Width Slider
-                    Slider(value: $strokeWidth, in: 1...10)
-                        .frame(width: 100)
-                        .accentColor(Color(hex: strokeColor))
+                    HStack(spacing: 12) {
+                        // Color Picker
+                        ForEach(colors, id: \.self) { color in
+                            Circle()
+                                .fill(Color(hex: color))
+                                .frame(width: 24, height: 24)
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.white, lineWidth: strokeColor == color ? 2 : 0)
+                                )
+                                .onTapGesture {
+                                    strokeColor = color
+                                }
+                        }
+                        
+                        Divider()
+                            .frame(height: 20)
+                        
+                        // Width Slider
+                        Slider(value: $strokeWidth, in: 1...10)
+                            .frame(width: 100)
+                            .accentColor(Color(hex: strokeColor))
+                    }
                 }
                 .padding(.horizontal)
                 .padding(.top, 8)
             }
+
             
             HStack(spacing: 20) {
                 // Primary Tools
@@ -71,7 +94,14 @@ struct ToolbarView: View {
                     }
                     .foregroundColor(selectedTool == .hand ? .blue : .primary)
                     
-                    Button(action: { selectedTool = .pen }) {
+                    Button(action: {
+                        if selectedTool == .pen {
+                            // Toggle expand/collapse when already on pen
+                            onPenTapped?()
+                        } else {
+                            selectedTool = .pen
+                        }
+                    }) {
                         Image(systemName: "pencil")
                     }
                     .foregroundColor(selectedTool == .pen ? .blue : .primary)

@@ -26,6 +26,10 @@ struct BlackboardView: View {
             }
             .onAppear {
                 viewModel.centerCanvas(in: geometry.size)
+                // Refresh subscription status when view appears
+                Task {
+                    await subscriptionManager.refreshStatus()
+                }
             }
         }
         .navigationTitle(note.title)
@@ -84,6 +88,12 @@ struct BlackboardView: View {
         .onChange(of: isShowingDocumentPicker) { newValue in
             print("BlackboardView: isShowingDocumentPicker changed to \(newValue)")
         }
+        .onChange(of: viewModel.currentStroke) { stroke in
+            // Collapse toolbar when starting to draw
+            if stroke != nil {
+                isPenToolbarCollapsed = true
+            }
+        }
     }
     
     @State private var selectedTool: ToolbarView.ToolType = .select
@@ -99,6 +109,7 @@ struct BlackboardView: View {
     @State private var isFingerDrawingEnabled = false
     @State private var chatContext: String?
     @State private var isShowingPaywall = false
+    @State private var isPenToolbarCollapsed = false
     @StateObject private var geminiService = GeminiService()
     
     var canvasContent: some View {
@@ -167,7 +178,14 @@ struct BlackboardView: View {
                         path.addLine(to: CGPoint(x: point.x, y: point.y))
                     }
                 }
-                .stroke(Color(hex: data.color), style: StrokeStyle(lineWidth: data.width, lineCap: .round, lineJoin: .round))
+                .stroke(
+                    Color(hex: data.color).opacity(data.brushType.opacity),
+                    style: StrokeStyle(
+                        lineWidth: data.width * data.brushType.widthMultiplier,
+                        lineCap: data.brushType.lineCap,
+                        lineJoin: data.brushType.lineJoin
+                    )
+                )
             }
             
             // Render Selection Box
@@ -318,6 +336,11 @@ struct BlackboardView: View {
                     selectedTool: $selectedTool,
                     strokeColor: $viewModel.currentStrokeColor,
                     strokeWidth: $viewModel.currentStrokeWidth,
+                    brushType: $viewModel.currentBrushType,
+                    isDrawing: isPenToolbarCollapsed,
+                    onPenTapped: {
+                        isPenToolbarCollapsed.toggle()
+                    },
                     onAddGraph: {
                         // Removed
                     },
@@ -388,6 +411,15 @@ struct BlackboardView: View {
             .sheet(isPresented: $isShowingPaywall) {
                 PaywallView()
                     .environmentObject(subscriptionManager)
+            }
+            .onChange(of: isShowingPaywall) { newValue in
+                // When paywall is dismissed, refresh subscription status
+                if !newValue {
+                    Task {
+                        await subscriptionManager.refreshStatus()
+                        print("[BlackboardView] Refreshed subscription after paywall dismissed: \(subscriptionManager.currentTier.displayName)")
+                    }
+                }
             }
             
             // Page Controls (Bottom Left)
@@ -508,6 +540,22 @@ struct BlackboardView: View {
                 }
                 .transition(.move(edge: .leading))
                 .zIndex(100)
+            }
+            
+            // DEBUG: Subscription Status Overlay (remove after testing)
+            VStack {
+                HStack {
+                    Text("Tier: \(subscriptionManager.currentTier.displayName)")
+                        .font(.caption)
+                        .padding(6)
+                        .background(subscriptionManager.currentTier == .pro ? Color.purple : (subscriptionManager.currentTier == .basic ? Color.blue : Color.gray))
+                        .foregroundColor(.white)
+                        .cornerRadius(6)
+                    Spacer()
+                }
+                .padding(.top, 50)
+                .padding(.leading, 20)
+                Spacer()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

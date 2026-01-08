@@ -30,6 +30,7 @@ class CanvasViewModel: ObservableObject {
     // Styling
     @Published var currentStrokeColor: String = "#000000"
     @Published var currentStrokeWidth: CGFloat = 2.0
+    @Published var currentBrushType: BrushType = .pen
     
     // Undo/Redo (per-page)
     private var undoStack: [[CanvasElementData]] = []
@@ -372,7 +373,7 @@ class CanvasViewModel: ObservableObject {
             y: max(0, min(canvasPoint.y, CanvasConstants.a4Height))
         )
         
-        let strokeData = StrokeData(points: [StrokeData.Point(x: clampedPoint.x, y: clampedPoint.y)], color: currentStrokeColor, width: currentStrokeWidth)
+        let strokeData = StrokeData(points: [StrokeData.Point(x: clampedPoint.x, y: clampedPoint.y)], color: currentStrokeColor, width: currentStrokeWidth, brushType: currentBrushType)
         
         currentStroke = CanvasElementData(
             id: UUID(),
@@ -421,7 +422,7 @@ class CanvasViewModel: ObservableObject {
         
         // Normalize points relative to bounding box
         let normalizedPoints = data.points.map { StrokeData.Point(x: $0.x - minX, y: $0.y - minY) }
-        let newStrokeData = StrokeData(points: normalizedPoints, color: data.color, width: data.width)
+        let newStrokeData = StrokeData(points: normalizedPoints, color: data.color, width: data.width, brushType: data.brushType)
         
         // Create final element
         let newElement = CanvasElementData(
@@ -596,7 +597,7 @@ class CanvasViewModel: ObservableObject {
                     // The safest bet for "zombie" (created before fix) is that points are absolute.
                     
                     let normalizedPoints = data.points.map { StrokeData.Point(x: $0.x - minX, y: $0.y - minY) }
-                    let newStrokeData = StrokeData(points: normalizedPoints, color: data.color, width: data.width)
+                    let newStrokeData = StrokeData(points: normalizedPoints, color: data.color, width: data.width, brushType: data.brushType)
                     
                     element.x = minX
                     element.y = minY
@@ -871,7 +872,7 @@ class CanvasViewModel: ObservableObject {
                     let scale = (scaleX + scaleY) / 2.0
                     let newWidth = data.width * scale
                     
-                    element.data = .stroke(StrokeData(points: newPoints, color: data.color, width: newWidth))
+                    element.data = .stroke(StrokeData(points: newPoints, color: data.color, width: newWidth, brushType: data.brushType))
                 }
                 
                 elements[index] = element

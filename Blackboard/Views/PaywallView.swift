@@ -240,10 +240,14 @@ struct PaywallView: View {
         guard let product = selectedProduct else { return }
         
         isPurchasing = true
-        defer { isPurchasing = false }
         
         let success = await subscriptionManager.purchase(product)
+        
+        isPurchasing = false
+        
         if success {
+            // Small delay to allow the subscription status to update before dismissing
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
             dismiss()
         }
     }

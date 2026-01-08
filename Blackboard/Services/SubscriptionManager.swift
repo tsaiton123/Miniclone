@@ -139,6 +139,11 @@ class SubscriptionManager: ObservableObject {
         products.first { $0.id == tier.rawValue }
     }
     
+    /// Force refresh the subscription status - call this when returning to a view
+    func refreshStatus() async {
+        await updateSubscriptionStatus()
+    }
+    
     // MARK: - Private Methods
     
     /// Update the current subscription status by checking entitlements
@@ -146,22 +151,37 @@ class SubscriptionManager: ObservableObject {
         var highestTier: SubscriptionTier = .free
         var latestExpirationDate: Date?
         
+        print("[SubscriptionManager] Checking current entitlements...")
+        
         // Check current entitlements
         for await result in Transaction.currentEntitlements {
+            print("[SubscriptionManager] Found entitlement result: \(result)")
+            
             guard case .verified(let transaction) = result else {
+                print("[SubscriptionManager] Skipping unverified transaction")
                 continue
             }
+            
+            print("[SubscriptionManager] Verified transaction - Product: \(transaction.productID), Type: \(transaction.productType)")
             
             // Only process subscription transactions
             if transaction.productType == .autoRenewable {
                 if let tier = SubscriptionTier(rawValue: transaction.productID) {
+                    print("[SubscriptionManager] Matched tier: \(tier.displayName)")
                     if tier > highestTier {
                         highestTier = tier
                         latestExpirationDate = transaction.expirationDate
                     }
+                } else {
+                    print("[SubscriptionManager] Could not match product ID to tier: \(transaction.productID)")
                 }
             }
         }
+        
+        print("[SubscriptionManager] Final tier determined: \(highestTier.displayName)")
+        
+        // Explicitly notify observers before updating
+        objectWillChange.send()
         
         // Update published properties
         currentTier = highestTier
@@ -172,7 +192,7 @@ class SubscriptionManager: ObservableObject {
             subscriptionStatus = .notSubscribed
         }
         
-        print("[SubscriptionManager] Updated status: \(currentTier.displayName)")
+        print("[SubscriptionManager] Updated status: \(currentTier.displayName), hasAIFeatures: \(currentTier.hasAIFeatures)")
     }
     
     /// Listen for transaction updates (renewals, refunds, etc.)

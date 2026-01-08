@@ -83,7 +83,7 @@ struct CanvasElementView: View {
                 }
                 
             case .stroke(let data):
-                // Placeholder for Stroke View
+                // Render stroke with brush-specific styling
                 Path { path in
                     guard let first = data.points.first else { return }
                     path.move(to: CGPoint(x: first.x, y: first.y))
@@ -91,7 +91,14 @@ struct CanvasElementView: View {
                         path.addLine(to: CGPoint(x: point.x, y: point.y))
                     }
                 }
-                .stroke(Color(hex: data.color), style: StrokeStyle(lineWidth: data.width, lineCap: .round, lineJoin: .round))
+                .stroke(
+                    Color(hex: data.color).opacity(data.brushType.opacity),
+                    style: StrokeStyle(
+                        lineWidth: data.width * data.brushType.widthMultiplier,
+                        lineCap: data.brushType.lineCap,
+                        lineJoin: data.brushType.lineJoin
+                    )
+                )
             }
         }
         .frame(width: element.width, height: element.height)

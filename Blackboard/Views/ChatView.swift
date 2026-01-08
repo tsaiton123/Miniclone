@@ -7,7 +7,6 @@ struct ChatView: View {
     @State private var messageText = ""
     @State private var messages: [ChatMessage] = []
     @State private var isLoading = false
-    @State private var showSettings = false
     
     @Binding var contextToProcess: String?
     
@@ -27,9 +26,6 @@ struct ChatView: View {
                 Text("Cognote")
                     .font(.headline)
                 Spacer()
-                Button(action: { showSettings.toggle() }) {
-                    Image(systemName: "gear")
-                }
             }
             .padding()
             .background(Color(UIColor.secondarySystemBackground))
@@ -83,9 +79,6 @@ struct ChatView: View {
         .cornerRadius(16)
         .shadow(radius: 10)
         .frame(width: 350, height: 500)
-        .sheet(isPresented: $showSettings) {
-            SettingsView(apiKey: $geminiService.apiKey)
-        }
         .onChange(of: contextToProcess) { context in
             if let context = context {
                 sendMessage(context: context)
@@ -178,28 +171,6 @@ struct MessageBubble: View {
                     .cornerRadius(12)
                     .font(.custom("Caveat-Regular", size: 22)) // Handwriting for AI
                 Spacer()
-            }
-        }
-    }
-}
-
-struct SettingsView: View {
-    @Binding var apiKey: String
-    @Environment(\.dismiss) var dismiss
-    
-    var body: some View {
-        NavigationView {
-            Form {
-                Section(header: Text("Gemini API")) {
-                    SecureField("API Key", text: $apiKey)
-                    Link("Get API Key", destination: URL(string: "https://aistudio.google.com/app/apikey")!)
-                }
-            }
-            .navigationTitle("Settings")
-            .toolbar {
-                Button("Done") {
-                    dismiss()
-                }
             }
         }
     }
