@@ -10,8 +10,8 @@ import Foundation
 /// Represents the subscription tiers available in Cognote
 enum SubscriptionTier: String, CaseIterable, Comparable {
     case free = "free"
-    case basic = "com.cognote.subscription.basic"    // $5.99/mo
-    case pro = "com.cognote.subscription.pro"        // $9.99/mo
+    case basic = "com.cognote.subscription.basic.v2"    // $5.99/mo
+    case pro = "com.cognote.subscription.pro.v2"        // $9.99/mo
     
     // MARK: - Feature Access
     
@@ -95,8 +95,8 @@ enum SubscriptionStatus: Equatable {
 
 /// Product identifiers for StoreKit
 struct SubscriptionProductIDs {
-    static let basic = "com.cognote.subscription.basic"
-    static let pro = "com.cognote.subscription.pro"
+    static let basic = "com.cognote.subscription.basic.v2"
+    static let pro = "com.cognote.subscription.pro.v2"
     
     static let all: Set<String> = [basic, pro]
 }

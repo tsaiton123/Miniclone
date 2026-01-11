@@ -45,39 +45,53 @@ struct FileSystemView: View {
         }
     }
     
+    @State private var selectedTab = 1
+    
     var body: some View {
         NavigationStack(path: $viewModel.navigationPath) {
-            VStack {
-                // Breadcrumbs
-                if let current = viewModel.currentFolder {
-                    HStack {
-                        Button(action: { viewModel.navigateUp() }) {
-                            Image(systemName: "chevron.left")
-                            Text("Back")
+            DashboardLayout(searchText: $viewModel.searchText, selectedTab: $selectedTab) {
+                VStack {
+                    // Breadcrumbs
+                    if let current = viewModel.currentFolder {
+                        HStack {
+                            Button(action: { viewModel.navigateUp() }) {
+                                Image(systemName: "chevron.left")
+                                Text("Back")
+                            }
+                            Spacer()
+                            Text(current.title)
+                                .font(.headline)
+                            Spacer()
                         }
-                        Spacer()
-                        Text(current.title)
-                            .font(.headline)
-                        Spacer()
+                        .padding()
                     }
-                    .padding()
-                }
-                
-                if viewModel.isGridMode {
+                    
                     ScrollView {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 100))], spacing: 20) {
+                        // Title
+                        HStack {
+                            Text(viewModel.currentFolder?.title ?? "Dashboard")
+                                .font(.system(size: 34, weight: .bold))
+                                .padding(.leading, 20)
+                                .padding(.top, 20)
+                            Spacer()
+                        }
+                        
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 20)], spacing: 20) {
                             ForEach(filteredItems) { item in
-                                FileSystemItemView(item: item, onRename: {
-                                    itemToRename = item
-                                    renameTitle = item.title
-                                })
-                                .onTapGesture {
-                                    if item.isFolder {
-                                        viewModel.navigateTo(folder: item)
-                                    } else {
-                                        viewModel.navigationPath.append(item)
+                                DashboardCardView(
+                                    title: item.title,
+                                    description: item.isFolder ? "Folder • \(item.children?.count ?? 0) items" : "Note • \(item.createdAt.formatted(date: .abbreviated, time: .shortened))",
+                                    icon: item.isFolder ? "folder" : "doc.text",
+                                    backgroundColor: item.isFolder ? Color.blue.opacity(0.1) : Color(UIColor.secondarySystemBackground), // Light Blue for Folders
+                                    buttonText: item.isFolder ? "Open" : "Get Started",
+                                    action: {
+                                        if item.isFolder {
+                                            viewModel.navigateTo(folder: item)
+                                        } else {
+                                            viewModel.navigationPath.append(item)
+                                        }
                                     }
-                                }
+                                )
                                 .contextMenu {
                                     Button(action: { viewModel.togglePin(item) }) {
                                         Label(item.isPinned ? "Unpin" : "Pin", systemImage: item.isPinned ? "pin.slash" : "pin")
@@ -94,79 +108,37 @@ struct FileSystemView: View {
                                 }
                             }
                         }
-                        .padding()
-                    }
-                } else {
-                    List {
-                        ForEach(filteredItems) { item in
-                            HStack {
-                                Image(systemName: item.isFolder ? "folder.fill" : "doc.text.fill")
-                                    .foregroundColor(item.isFolder ? .blue : .gray)
-                                Text(item.title)
-                                Spacer()
-                                if item.isPinned {
-                                    Image(systemName: "pin.fill")
-                                        .font(.caption)
-                                        .foregroundColor(.orange)
-                                }
-                            }
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                if item.isFolder {
-                                    viewModel.navigateTo(folder: item)
-                                } else {
-                                    viewModel.navigationPath.append(item)
-                                }
-                            }
-                            .contextMenu {
-                                Button(action: { viewModel.togglePin(item) }) {
-                                    Label(item.isPinned ? "Unpin" : "Pin", systemImage: item.isPinned ? "pin.slash" : "pin")
-                                }
-                                Button(action: {
-                                    itemToRename = item
-                                    renameTitle = item.title
-                                }) {
-                                    Label("Rename", systemImage: "pencil")
-                                }
-                                Button(role: .destructive, action: { viewModel.deleteItem(item) }) {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                            }
-                        }
+                        .padding(20)
                     }
                 }
             }
-            .navigationTitle(viewModel.currentFolder?.title ?? "My Files")
+            .navigationTitle("")
+            .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: NoteItem.self) { item in
                 BlackboardView(note: item)
+                    .toolbar(.visible, for: .navigationBar) // Show navbar in editor
             }
-            .searchable(text: $viewModel.searchText)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        Button(action: {
-                            if canCreateNote {
-                                newItemTitle = ""
-                                isShowingCreateNote = true
-                            } else {
-                                isShowingPaywall = true
-                            }
-                        }) {
-                            Label("New Note", systemImage: "doc.badge.plus")
-                        }
-                        Button(action: {
-                            newItemTitle = ""
-                            isShowingCreateFolder = true
-                        }) {
-                            Label("New Folder", systemImage: "folder.badge.plus")
-                        }
-                        Button(action: { viewModel.isGridMode.toggle() }) {
-                            Label(viewModel.isGridMode ? "List View" : "Grid View", systemImage: viewModel.isGridMode ? "list.bullet" : "square.grid.2x2")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
+            .onChange(of: selectedTab) { newValue in
+                if newValue == 2 { // "Add" button index is now 2
+                    isShowingAddSheet = true
+                    // Reset tab to home or keep generic?
+                    selectedTab = 1
+                }
+            }
+            .confirmationDialog("Create New", isPresented: $isShowingAddSheet, titleVisibility: .visible) {
+                Button("New Note") {
+                    if canCreateNote {
+                        newItemTitle = ""
+                        isShowingCreateNote = true
+                    } else {
+                        isShowingPaywall = true
                     }
                 }
+                Button("New Folder") {
+                    newItemTitle = ""
+                    isShowingCreateFolder = true
+                }
+                Button("Cancel", role: .cancel) { }
             }
             .alert("New Note", isPresented: $isShowingCreateNote) {
                 TextField("Title", text: $newItemTitle)
@@ -182,21 +154,15 @@ struct FileSystemView: View {
                     viewModel.createFolder(title: newItemTitle)
                 }
             }
-            .alert("Rename", isPresented: Binding(get: { itemToRename != nil }, set: { if !$0 { itemToRename = nil } })) {
-                TextField("Title", text: $renameTitle)
-                Button("Cancel", role: .cancel) { }
-                Button("Rename") {
-                    if let item = itemToRename {
-                        viewModel.renameItem(item, newTitle: renameTitle)
-                    }
-                }
-            }
+            // Add a way to create folders too - maybe a separate check or action
             .sheet(isPresented: $isShowingPaywall) {
                 PaywallView()
                     .environmentObject(subscriptionManager)
             }
         }
     }
+    
+    @State private var isShowingAddSheet = false
 }
 
 struct FileSystemItemView: View {
