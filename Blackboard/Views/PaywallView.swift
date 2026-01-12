@@ -49,9 +49,15 @@ struct PaywallView: View {
             }
         }
         .onAppear {
-            // Pre-select basic plan by default
-            if selectedProduct == nil {
-                selectedProduct = subscriptionManager.products.first
+            // Pre-select basic plan by default if products already loaded
+            if selectedProduct == nil, let first = subscriptionManager.products.first {
+                selectedProduct = first
+            }
+        }
+        .onChange(of: subscriptionManager.products) { _, newProducts in
+            // Auto-select first product when products finish loading
+            if selectedProduct == nil, let first = newProducts.first {
+                selectedProduct = first
             }
         }
     }
@@ -84,6 +90,35 @@ struct PaywallView: View {
     
     private var featureComparisonSection: some View {
         VStack(spacing: 0) {
+            // Header row with plan names
+            HStack {
+                Text("Features")
+                    .font(.footnote)
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                
+                Text("Free")
+                    .font(.footnote)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .frame(width: 60)
+                
+                Text("Basic")
+                    .font(.footnote)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.blue)
+                    .frame(width: 60)
+                
+                Text("Pro")
+                    .font(.footnote)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.purple)
+                    .frame(width: 60)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            
+            Divider()
             featureRow(icon: "doc.text", title: "Notes", free: "3 max", basic: "Unlimited", pro: "Unlimited")
             Divider()
             featureRow(icon: "doc.richtext", title: "PDF Import", free: false, basic: true, pro: true)

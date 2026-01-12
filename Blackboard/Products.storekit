@@ -43,7 +43,7 @@
               "locale" : "en_US"
             }
           ],
-          "productID" : "com.cognote.subscription.basic",
+          "productID" : "com.cognote.subscription.basic.v2",
           "recurringSubscriptionPeriod" : "P1M",
           "referenceName" : "Cognote Basic Monthly",
           "subscriptionGroupID" : "cognote_subscriptions",
@@ -64,7 +64,7 @@
               "locale" : "en_US"
             }
           ],
-          "productID" : "com.cognote.subscription.pro",
+          "productID" : "com.cognote.subscription.pro.v2",
           "recurringSubscriptionPeriod" : "P1M",
           "referenceName" : "Cognote Pro Monthly",
           "subscriptionGroupID" : "cognote_subscriptions",
