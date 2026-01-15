@@ -34,6 +34,10 @@ class SubscriptionManager: ObservableObject {
     
     private var updateListenerTask: Task<Void, Error>?
     
+    /// Tracks a pending upgrade that hasn't been reflected in entitlements yet
+    /// This prevents downgrades when entitlements are stale
+    private var pendingUpgradeTier: SubscriptionTier?
+    
     // MARK: - Initialization
     
     init() {
@@ -81,11 +85,36 @@ class SubscriptionManager: ObservableObject {
                 // Check if the transaction is verified
                 let transaction = try checkVerified(verification)
                 
-                // Update subscription status
-                await updateSubscriptionStatus()
+                // IMPORTANT: Use product.id (what user is purchasing), NOT transaction.productID
+                // In subscription group upgrades, transaction.productID may return the OLD subscription
+                // while the upgrade is being processed. product.id is always the intent.
+                if let purchasedTier = SubscriptionTier(rawValue: product.id) {
+                    print("[SubscriptionManager] Purchase verified for tier: \(purchasedTier.displayName) (product: \(product.id))")
+                    
+                    // If purchased tier is higher, update immediately before waiting for entitlements sync
+                    if purchasedTier > currentTier {
+                        print("[SubscriptionManager] Upgrading immediately to: \(purchasedTier.displayName)")
+                        
+                        // Set pending upgrade to prevent any stale entitlement checks from downgrading
+                        pendingUpgradeTier = purchasedTier
+                        
+                        objectWillChange.send()
+                        currentTier = purchasedTier
+                        subscriptionStatus = .subscribed(tier: purchasedTier, expirationDate: transaction.expirationDate)
+                    }
+                } else {
+                    print("[SubscriptionManager] Warning: Could not match product.id to tier: \(product.id)")
+                }
                 
-                // Finish the transaction
+                // Finish the transaction first
                 await transaction.finish()
+                
+                // Small delay to allow StoreKit to sync entitlements
+                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                
+                // Then update subscription status from entitlements (may catch additional subscriptions)
+                // Use preventDowngrade to avoid stale entitlements overwriting the immediate upgrade
+                await updateSubscriptionStatus(preventDowngrade: true)
                 
                 print("[SubscriptionManager] Purchase successful: \(product.id)")
                 return true
@@ -141,13 +170,15 @@ class SubscriptionManager: ObservableObject {
     
     /// Force refresh the subscription status - call this when returning to a view
     func refreshStatus() async {
-        await updateSubscriptionStatus()
+        // Always respect pending upgrades to avoid stale entitlements downgrading the tier
+        await updateSubscriptionStatus(respectPendingUpgrade: true)
     }
     
     // MARK: - Private Methods
     
     /// Update the current subscription status by checking entitlements
-    private func updateSubscriptionStatus() async {
+    /// - Parameter respectPendingUpgrade: If true, respect any pending upgrade that hasn't synced to entitlements yet
+    private func updateSubscriptionStatus(preventDowngrade: Bool = false, respectPendingUpgrade: Bool = false) async {
         var highestTier: SubscriptionTier = .free
         var latestExpirationDate: Date?
         
@@ -178,7 +209,24 @@ class SubscriptionManager: ObservableObject {
             }
         }
         
-        print("[SubscriptionManager] Final tier determined: \(highestTier.displayName)")
+        print("[SubscriptionManager] Final tier from entitlements: \(highestTier.displayName)")
+        
+        // Check if we have a pending upgrade that hasn't been reflected in entitlements
+        if let pending = pendingUpgradeTier {
+            if highestTier >= pending {
+                // Entitlements have caught up, clear the pending upgrade
+                print("[SubscriptionManager] Entitlements caught up to pending upgrade (\(pending.displayName)), clearing pending flag")
+                pendingUpgradeTier = nil
+            } else if respectPendingUpgrade || preventDowngrade {
+                // Entitlements haven't caught up yet, keep the pending tier
+                print("[SubscriptionManager] Keeping pending upgrade tier: \(pending.displayName) (entitlements show: \(highestTier.displayName))")
+                highestTier = pending
+            }
+        } else if preventDowngrade && highestTier < currentTier {
+            // No pending upgrade but we're asked to prevent downgrade
+            print("[SubscriptionManager] Preventing downgrade from \(currentTier.displayName) to \(highestTier.displayName) - keeping current tier")
+            return
+        }
         
         // Explicitly notify observers before updating
         objectWillChange.send()

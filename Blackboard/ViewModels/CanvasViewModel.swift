@@ -885,6 +885,72 @@ class CanvasViewModel: ObservableObject {
         initialSelectedElements.removeAll()
         saveCanvas()
     }
+    
+    // MARK: - Export
+    
+    /// Renders a single page to an image
+    func renderPageToImage(pageIndex: Int) -> UIImage? {
+        guard pages.indices.contains(pageIndex) else { return nil }
+        
+        let pageElements = pages[pageIndex].elements
+        
+        let pageView = ZStack(alignment: .topLeading) {
+            // White background
+            Rectangle()
+                .fill(Color(hex: CanvasConstants.paperColor))
+                .frame(width: CanvasConstants.a4Width, height: CanvasConstants.a4Height)
+            
+            // Render all elements
+            ForEach(pageElements) { element in
+                ExportElementView(element: element, imageCache: self.imageCache)
+            }
+        }
+        .frame(width: CanvasConstants.a4Width, height: CanvasConstants.a4Height)
+        
+        let renderer = ImageRenderer(content: pageView)
+        renderer.scale = 2.0 // High resolution
+        return renderer.uiImage
+    }
+    
+    /// Renders all pages to images
+    func renderAllPagesToImages() -> [UIImage] {
+        var images: [UIImage] = []
+        for i in 0..<pages.count {
+            if let image = renderPageToImage(pageIndex: i) {
+                images.append(image)
+            }
+        }
+        return images
+    }
+    
+    /// Exports specified pages to PDF data
+    func exportToPDF(pageIndices: [Int]) -> Data? {
+        let pdfRenderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: CanvasConstants.a4Width, height: CanvasConstants.a4Height))
+        
+        let data = pdfRenderer.pdfData { context in
+            for pageIndex in pageIndices {
+                guard pages.indices.contains(pageIndex) else { continue }
+                
+                context.beginPage()
+                
+                if let image = renderPageToImage(pageIndex: pageIndex) {
+                    image.draw(in: CGRect(x: 0, y: 0, width: CanvasConstants.a4Width, height: CanvasConstants.a4Height))
+                }
+            }
+        }
+        
+        return data
+    }
+    
+    /// Exports current page to PDF
+    func exportCurrentPageToPDF() -> Data? {
+        return exportToPDF(pageIndices: [currentPageIndex])
+    }
+    
+    /// Exports all pages to PDF
+    func exportAllPagesToPDF() -> Data? {
+        return exportToPDF(pageIndices: Array(0..<pages.count))
+    }
 }
 
 // MARK: - Safe Array Subscript

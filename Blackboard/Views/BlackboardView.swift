@@ -55,20 +55,19 @@ struct BlackboardView: View {
                 print("BlackboardView: fileImporter failed: \(error.localizedDescription)")
             }
         }
-        .fullScreenCover(isPresented: $isShowingPDFSelection) {
-            if let document = selectedPDFDocument {
-                PDFSelectionView(pdfDocument: document) { rect, image in
-                    viewModel.addElement(CanvasElementData(
-                        id: UUID(),
-                        type: .image,
-                        x: 100,
-                        y: 100,
-                        width: 200,
-                        height: 200 * (image.size.height / image.size.width),
-                        zIndex: viewModel.elements.count,
-                        data: .image(ImageData(src: image.pngData()?.base64EncodedString() ?? "", originalWidth: image.size.width, originalHeight: image.size.height))
-                    ))
-                }
+        .fullScreenCover(item: $selectedPDFDocument) { document in
+            PDFSelectionView(pdfDocument: document) { rect, image in
+                viewModel.addElement(CanvasElementData(
+                    id: UUID(),
+                    type: .image,
+                    x: 100,
+                    y: 100,
+                    width: 200,
+                    height: 200 * (image.size.height / image.size.width),
+                    zIndex: viewModel.elements.count,
+                    data: .image(ImageData(src: image.pngData()?.base64EncodedString() ?? "", originalWidth: image.size.width, originalHeight: image.size.height))
+                ))
+                selectedPDFDocument = nil
             }
         }
         .sheet(isPresented: $isShowingImagePicker) {
@@ -102,7 +101,6 @@ struct BlackboardView: View {
     @State private var selectedPDFDocument: PDFDocument?
     @State private var isMovingSelection = false
     @State private var isResizingSelection = false
-    @State private var isShowingPDFSelection = false
     @State private var isShowingChat = false
     @State private var isShowingCalculator = false
     @State private var isShowingSettings = false
@@ -110,6 +108,7 @@ struct BlackboardView: View {
     @State private var chatContext: String?
     @State private var isShowingPaywall = false
     @State private var isPenToolbarCollapsed = false
+    @State private var isShowingExportOptions = false
     @StateObject private var geminiService = GeminiService()
     
     var canvasContent: some View {
@@ -374,6 +373,9 @@ struct BlackboardView: View {
                     onRedo: {
                         viewModel.redo()
                     },
+                    onExport: {
+                        isShowingExportOptions = true
+                    },
                     onSettings: {
                         isShowingSettings = true
                     },
@@ -381,6 +383,9 @@ struct BlackboardView: View {
                     canRedo: viewModel.canRedo
                 )
                 .padding(.bottom, 20)
+            }
+            .sheet(isPresented: $isShowingExportOptions) {
+                ExportOptionsView(viewModel: viewModel, noteTitle: note.title)
             }
             .sheet(isPresented: $isShowingSettings) {
                 NavigationView {
@@ -618,26 +623,44 @@ struct BlackboardView: View {
             return
         }
         
-        defer { url.stopAccessingSecurityScopedResource() }
+        // Copy PDF data into memory BEFORE releasing security-scoped access
+        // This prevents race conditions where the document becomes inaccessible
+        // after the defer block executes but before PDFSelectionView renders
+        var pdfData: Data?
+        do {
+            pdfData = try Data(contentsOf: url)
+        } catch {
+            print("BlackboardView: Failed to read PDF data: \(error)")
+            url.stopAccessingSecurityScopedResource()
+            return
+        }
         
-        // Load PDF while security access is active (matching test_pdf approach)
-        if let document = PDFDocument(url: url) {
-            print("BlackboardView: Successfully loaded PDF with \(document.pageCount) pages")
-            DispatchQueue.main.async {
-                self.selectedPDFDocument = document
-                self.isShowingPDFSelection = true
-            }
-        } else {
-            print("BlackboardView: Failed to load PDF document")
+        // Now safe to release security-scoped access
+        url.stopAccessingSecurityScopedResource()
+        
+        // Create PDFDocument from in-memory data (no longer depends on URL access)
+        guard let data = pdfData, let document = PDFDocument(data: data) else {
+            print("BlackboardView: Failed to create PDF document from data")
+            return
+        }
+        
+        print("BlackboardView: Successfully loaded PDF with \(document.pageCount) pages")
+        
+        // Setting selectedPDFDocument triggers the fullScreenCover(item:) presentation
+        DispatchQueue.main.async {
+            self.selectedPDFDocument = document
         }
     }
-    }
-
-
+}
 
 // Helper to make URL Identifiable for fullScreenCover
 extension URL: Identifiable {
     public var id: String { absoluteString }
+}
+
+// Make PDFDocument Identifiable for fullScreenCover(item:)
+extension PDFDocument: @retroactive Identifiable {
+    public var id: ObjectIdentifier { ObjectIdentifier(self) }
 }
 
 struct ImagePicker: UIViewControllerRepresentable {
