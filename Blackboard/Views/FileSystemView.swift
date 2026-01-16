@@ -5,6 +5,7 @@ struct FileSystemView: View {
     @Environment(\.modelContext) private var modelContext
     @StateObject private var viewModel: FileSystemViewModel
     @EnvironmentObject var subscriptionManager: SubscriptionManager
+    @EnvironmentObject var authManager: AuthenticationManager
     @Query private var allItems: [NoteItem]
     
     @State private var isShowingCreateNote = false
@@ -13,6 +14,7 @@ struct FileSystemView: View {
     @State private var itemToRename: NoteItem?
     @State private var renameTitle = ""
     @State private var isShowingPaywall = false
+    @State private var isShowingSettings = false
     
     init(modelContext: ModelContext) {
         _viewModel = StateObject(wrappedValue: FileSystemViewModel(modelContext: modelContext))
@@ -49,7 +51,9 @@ struct FileSystemView: View {
     
     var body: some View {
         NavigationStack(path: $viewModel.navigationPath) {
-            DashboardLayout(searchText: $viewModel.searchText, selectedTab: $selectedTab) {
+            DashboardLayout(searchText: $viewModel.searchText, selectedTab: $selectedTab, onSettings: {
+                isShowingSettings = true
+            }) {
                 VStack {
                     // Breadcrumbs
                     if let current = viewModel.currentFolder {
@@ -158,6 +162,11 @@ struct FileSystemView: View {
             .sheet(isPresented: $isShowingPaywall) {
                 PaywallView()
                     .environmentObject(subscriptionManager)
+            }
+            .sheet(isPresented: $isShowingSettings) {
+                SettingsView()
+                    .environmentObject(subscriptionManager)
+                    .environmentObject(authManager)
             }
         }
     }

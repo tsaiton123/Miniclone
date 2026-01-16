@@ -63,4 +63,29 @@ class AuthenticationManager: ObservableObject {
         self.userId = guestId
         self.isAuthenticated = true
     }
+    
+    /// Permanently deletes the user's account and all associated data
+    /// This fulfills App Store Guideline 5.1.1(v) requirement for account deletion
+    func deleteAccount() {
+        // Delete all stored canvas files (drawing data)
+        StorageManager.shared.deleteAllCanvases()
+        
+        // Delete SwiftData store (notes and folders)
+        StorageManager.shared.deleteSwiftDataStore()
+        
+        // Clear all UserDefaults
+        if let bundleId = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: bundleId)
+        }
+        
+        // Clear specific keys as fallback
+        UserDefaults.standard.removeObject(forKey: "userId")
+        UserDefaults.standard.synchronize()
+        
+        // Sign out
+        self.userId = nil
+        self.isAuthenticated = false
+        
+        print("[AuthenticationManager] Account deleted and all data cleared")
+    }
 }

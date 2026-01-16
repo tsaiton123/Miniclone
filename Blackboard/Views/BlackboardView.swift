@@ -6,6 +6,7 @@ struct BlackboardView: View {
     var note: NoteItem
     @StateObject private var viewModel: CanvasViewModel
     @EnvironmentObject var subscriptionManager: SubscriptionManager
+    @EnvironmentObject var authManager: AuthenticationManager
     
     init(note: NoteItem) {
         self.note = note
@@ -109,6 +110,8 @@ struct BlackboardView: View {
     @State private var isShowingPaywall = false
     @State private var isPenToolbarCollapsed = false
     @State private var isShowingExportOptions = false
+    @State private var showingSignOutAlert = false
+    @State private var showingDeleteAccountAlert = false
     @StateObject private var geminiService = GeminiService()
     
     var canvasContent: some View {
@@ -402,6 +405,50 @@ struct BlackboardView: View {
                         Section(footer: Text("When enabled, use two fingers to scroll/pan the canvas while drawing.")) {
                             EmptyView()
                         }
+                        
+                        Section(header: Text("Account")) {
+                            Button(action: {
+                                showingSignOutAlert = true
+                            }) {
+                                HStack {
+                                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                                    Text("Sign Out")
+                                }
+                                .foregroundColor(.primary)
+                            }
+                            
+                            Button(action: {
+                                showingDeleteAccountAlert = true
+                            }) {
+                                HStack {
+                                    Image(systemName: "trash")
+                                    Text("Delete Account")
+                                }
+                                .foregroundColor(.red)
+                            }
+                        }
+                        
+                        Section(footer: Text("Deleting your account will permanently remove all your notes and data. This action cannot be undone. Note: App Store subscriptions are managed by Apple and must be cancelled separately in Settings → Apple ID → Subscriptions.")) {
+                            EmptyView()
+                        }
+                    }
+                    .alert("Sign Out", isPresented: $showingSignOutAlert) {
+                        Button("Cancel", role: .cancel) { }
+                        Button("Sign Out", role: .destructive) {
+                            isShowingSettings = false
+                            authManager.signOut()
+                        }
+                    } message: {
+                        Text("Are you sure you want to sign out?")
+                    }
+                    .alert("Delete Account", isPresented: $showingDeleteAccountAlert) {
+                        Button("Cancel", role: .cancel) { }
+                        Button("Delete Account", role: .destructive) {
+                            isShowingSettings = false
+                            authManager.deleteAccount()
+                        }
+                    } message: {
+                        Text("Are you sure you want to delete your account? This will permanently delete all your notes and data. This action cannot be undone.\n\nNote: Your App Store subscription (if any) is tied to your Apple ID and must be cancelled separately in Settings.")
                     }
                     .navigationTitle("Settings")
                     .toolbar {

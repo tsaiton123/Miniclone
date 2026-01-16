@@ -40,4 +40,48 @@ class StorageManager {
         let url = getFileURL(for: id)
         try? fileManager.removeItem(at: url)
     }
+    
+    /// Deletes all canvas files from the documents directory
+    /// Used when deleting user account
+    func deleteAllCanvases() {
+        let documentsDirectory = getDocumentsDirectory()
+        do {
+            let files = try fileManager.contentsOfDirectory(at: documentsDirectory, includingPropertiesForKeys: nil)
+            for file in files where file.pathExtension == "json" {
+                try? fileManager.removeItem(at: file)
+                print("Deleted canvas file: \(file.lastPathComponent)")
+            }
+        } catch {
+            print("Failed to enumerate documents directory: \(error)")
+        }
+    }
+    
+    /// Deletes the SwiftData store (SQLite database) containing NoteItem objects
+    /// This removes all notes and folders
+    func deleteSwiftDataStore() {
+        // SwiftData stores its data in the Application Support directory by default
+        guard let appSupportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            print("Failed to get Application Support directory")
+            return
+        }
+        
+        // SwiftData uses default.store as the database name
+        let storeURL = appSupportURL.appendingPathComponent("default.store")
+        
+        // SwiftData/SQLite creates multiple files: .store, .store-shm, .store-wal
+        let extensions = ["", "-shm", "-wal"]
+        
+        for ext in extensions {
+            let fileURL = URL(fileURLWithPath: storeURL.path + ext)
+            if fileManager.fileExists(atPath: fileURL.path) {
+                do {
+                    try fileManager.removeItem(at: fileURL)
+                    print("Deleted SwiftData file: \(fileURL.lastPathComponent)")
+                } catch {
+                    print("Failed to delete \(fileURL.lastPathComponent): \(error)")
+                }
+            }
+        }
+    }
 }
+

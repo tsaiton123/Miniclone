@@ -38,7 +38,7 @@ struct PaywallView: View {
                 .padding()
             }
             .background(Color(.systemGroupedBackground))
-            .navigationTitle("Upgrade to Premium")
+            .navigationTitle("Upgrade to Pro")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -179,12 +179,60 @@ struct PaywallView: View {
     
     private var subscriptionOptionsSection: some View {
         VStack(spacing: 12) {
-            ForEach(subscriptionManager.products, id: \.id) { product in
-                SubscriptionOptionCard(
-                    product: product,
-                    isSelected: selectedProduct?.id == product.id,
-                    onSelect: { selectedProduct = product }
-                )
+            if subscriptionManager.isLoading {
+                // Show loading state while products are being fetched
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    Text("Loading subscription options...")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+            } else if subscriptionManager.products.isEmpty {
+                // Show error state when no products were loaded
+                VStack(spacing: 16) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 40))
+                        .foregroundColor(.orange)
+                    
+                    Text("Unable to load subscription options")
+                        .font(.headline)
+                    
+                    Text("Please check your internet connection and try again.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    
+                    Button(action: {
+                        Task {
+                            await subscriptionManager.loadProducts()
+                        }
+                    }) {
+                        HStack {
+                            Image(systemName: "arrow.clockwise")
+                            Text("Retry")
+                        }
+                        .font(.headline)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 12)
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+            } else {
+                // Show subscription options when products are loaded
+                ForEach(subscriptionManager.products, id: \.id) { product in
+                    SubscriptionOptionCard(
+                        product: product,
+                        isSelected: selectedProduct?.id == product.id,
+                        onSelect: { selectedProduct = product }
+                    )
+                }
             }
         }
     }
@@ -261,8 +309,8 @@ struct PaywallView: View {
                 .multilineTextAlignment(.center)
             
             HStack(spacing: 16) {
-                Link("Terms of Service", destination: URL(string: "https://cognote.app/terms")!)
-                Link("Privacy Policy", destination: URL(string: "https://cognote.app/privacy")!)
+                Link("Terms of Service", destination: URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!)
+                Link("Privacy Policy", destination: URL(string: "https://www.notion.so/privacy-policy-2e41a505c963809095d1eb9ac6d911d2")!)
             }
             .font(.caption2)
         }

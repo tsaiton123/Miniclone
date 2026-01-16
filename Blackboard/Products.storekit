@@ -27,7 +27,7 @@
           "codeOffers" : [],
           "displayPrice" : "5.99",
           "familyShareable" : false,
-          "groupNumber" : 1,
+          "groupNumber" : 2,
           "internalID" : "basic_subscription",
           "introductoryOffer" : {
             "displayPrice" : "0",
@@ -54,7 +54,7 @@
           "codeOffers" : [],
           "displayPrice" : "9.99",
           "familyShareable" : false,
-          "groupNumber" : 2,
+          "groupNumber" : 1,
           "internalID" : "pro_subscription",
           "introductoryOffer" : null,
           "localizations" : [

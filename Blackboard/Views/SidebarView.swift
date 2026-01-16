@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SidebarView: View {
     @Binding var selectedTab: Int
+    var onSettings: () -> Void = {}
     
     // List, Home, Plus
     let items = [
@@ -23,6 +24,14 @@ struct SidebarView: View {
                 }
             }
             Spacer()
+            
+            // Settings button at the bottom
+            Button(action: onSettings) {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(.gray)
+                    .frame(width: 44, height: 44)
+            }
         }
         .padding(.vertical, 20)
         .frame(width: 70)
@@ -30,3 +39,4 @@ struct SidebarView: View {
         // Add a subtle border or shadow to separate from content if needed
     }
 }
+

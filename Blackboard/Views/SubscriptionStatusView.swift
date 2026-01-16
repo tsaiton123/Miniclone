@@ -155,7 +155,7 @@ struct SubscriptionStatusView: View {
         Button(action: { showingPaywall = true }) {
             HStack {
                 Image(systemName: "arrow.up.circle.fill")
-                Text(subscriptionManager.currentTier == .free ? "Upgrade to Premium" : "Upgrade to Pro")
+                Text(subscriptionManager.currentTier == .free ? "Upgrade to Pro" : "Upgrade to Pro")
             }
             .font(.headline)
             .frame(maxWidth: .infinity)
