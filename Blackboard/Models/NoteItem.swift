@@ -1,5 +1,13 @@
 import Foundation
 import SwiftData
+import UniformTypeIdentifiers
+
+// Custom UTType for NoteItem drag-and-drop
+extension UTType {
+    static var noteItem: UTType {
+        UTType(exportedAs: "com.blackboard.noteitem")
+    }
+}
 
 @Model
 final class NoteItem {
@@ -24,5 +32,12 @@ final class NoteItem {
         self.isFolder = isFolder
         self.isPinned = false
         self.parent = parent
+    }
+}
+
+// MARK: - Transferable for Drag-and-Drop
+extension NoteItem: Transferable {
+    static var transferRepresentation: some TransferRepresentation {
+        ProxyRepresentation(exporting: \.id.uuidString)
     }
 }

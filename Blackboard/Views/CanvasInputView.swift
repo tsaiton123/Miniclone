@@ -180,7 +180,7 @@ struct CanvasInputView: UIViewRepresentable {
             if parent.selectedTool == .pen {
                 parent.viewModel.startStroke(at: location)
             } else if parent.selectedTool == .eraser {
-                parent.viewModel.eraseElement(at: location)
+                parent.viewModel.startEraserStroke(at: location)
             } else if parent.selectedTool == .select {
                 handleSelectionStart(location: location)
             }
@@ -196,7 +196,7 @@ struct CanvasInputView: UIViewRepresentable {
             if parent.selectedTool == .pen {
                 parent.viewModel.continueStroke(at: location)
             } else if parent.selectedTool == .eraser {
-                parent.viewModel.eraseElement(at: location)
+                parent.viewModel.continueStroke(at: location)
             } else if parent.selectedTool == .select {
                 // Handle selection with pencil
                 if isMovingSelection {
@@ -222,10 +222,11 @@ struct CanvasInputView: UIViewRepresentable {
             
             if parent.selectedTool == .pen {
                 parent.viewModel.endStroke()
+            } else if parent.selectedTool == .eraser {
+                parent.viewModel.endStroke()
             } else if parent.selectedTool == .select {
                 handleSelectionEnd()
             }
-            // Eraser doesn't need end handling
         }
         
         // MARK: - Gesture Recognizer Handlers (for non-drawing gestures)

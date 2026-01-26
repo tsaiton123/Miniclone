@@ -7,6 +7,10 @@
 
 import Foundation
 
+// MARK: - Temporary Subscription Bypass
+/// Set to false to restore subscription-based tier gating when App Store payments are fixed
+let kSubscriptionBypassEnabled = true
+
 /// Represents the subscription tiers available in Cognote
 enum SubscriptionTier: String, CaseIterable, Comparable {
     case free = "free"
@@ -18,19 +22,22 @@ enum SubscriptionTier: String, CaseIterable, Comparable {
     /// Maximum number of notes allowed for this tier
     var maxNotes: Int {
         switch self {
-        case .free: return 3
+        case .free: return kSubscriptionBypassEnabled ? Int.max : 3
         case .basic, .pro: return Int.max
         }
     }
     
     /// Whether this tier has unlimited notes
-    var hasUnlimitedNotes: Bool { self != .free }
+    /// Temporarily enabled for all tiers while in-app payments are disabled
+    var hasUnlimitedNotes: Bool { kSubscriptionBypassEnabled ? true : self != .free }
     
     /// Whether PDF import is available
-    var hasPDFImport: Bool { self != .free }
+    /// Temporarily enabled for all tiers while in-app payments are disabled
+    var hasPDFImport: Bool { kSubscriptionBypassEnabled ? true : self != .free }
     
     /// Whether AI features (Gemini) are available
-    var hasAIFeatures: Bool { self == .pro }
+    /// Temporarily enabled for all tiers while in-app payments are disabled
+    var hasAIFeatures: Bool { kSubscriptionBypassEnabled ? true : self == .pro }
     
     // MARK: - Display Properties
     

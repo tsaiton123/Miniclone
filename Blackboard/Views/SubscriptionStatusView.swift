@@ -10,6 +10,7 @@ import SwiftUI
 /// View to display current subscription status in settings
 struct SubscriptionStatusView: View {
     @EnvironmentObject var subscriptionManager: SubscriptionManager
+    @StateObject private var quotaManager = AIQuotaManager.shared
     @State private var showingPaywall = false
     
     var body: some View {
@@ -17,13 +18,13 @@ struct SubscriptionStatusView: View {
             // Current Plan Card
             currentPlanCard
             
-            // Upgrade Button (if not on highest tier)
-            if subscriptionManager.currentTier != .pro {
+            // Hide upgrade button when subscription bypass is enabled
+            if !kSubscriptionBypassEnabled && subscriptionManager.currentTier != .pro {
                 upgradeButton
             }
             
-            // Manage Subscription Link
-            if subscriptionManager.currentTier != .free {
+            // Manage Subscription Link (only show for actual subscribers)
+            if !kSubscriptionBypassEnabled && subscriptionManager.currentTier != .free {
                 manageSubscriptionLink
             }
         }
@@ -45,8 +46,14 @@ struct SubscriptionStatusView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                     
-                    Text("Cognote \(subscriptionManager.currentTier.displayName)")
-                        .font(.headline)
+                    // Show "Pro (Trial)" when bypass is enabled
+                    if kSubscriptionBypassEnabled {
+                        Text("Cognote Pro (Trial)")
+                            .font(.headline)
+                    } else {
+                        Text("Cognote \(subscriptionManager.currentTier.displayName)")
+                            .font(.headline)
+                    }
                 }
                 
                 Spacer()
@@ -56,27 +63,71 @@ struct SubscriptionStatusView: View {
             
             Divider()
             
+            // AI Quota section when bypass is enabled
+            if kSubscriptionBypassEnabled {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "sparkles")
+                            .foregroundColor(.purple)
+                        Text("Daily AI Quota")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        Spacer()
+                        Text("\(quotaManager.remainingQuota)/\(AIQuotaManager.dailyLimit)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    // Progress bar
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color.gray.opacity(0.2))
+                                .frame(height: 8)
+                            
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(
+                                    LinearGradient(
+                                        colors: quotaManager.usageProgress < 0.8 ? [.blue, .purple] : [.orange, .red],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .frame(width: geometry.size.width * CGFloat(1.0 - quotaManager.usageProgress), height: 8)
+                        }
+                    }
+                    .frame(height: 8)
+                    
+                    Text("Resets daily at midnight")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                
+                Divider()
+            }
+            
             // Features list
             VStack(alignment: .leading, spacing: 8) {
                 featureItem(
                     "Notes",
-                    value: subscriptionManager.currentTier.hasUnlimitedNotes ? "Unlimited" : "3 max",
+                    value: "Unlimited",
                     available: true
                 )
                 featureItem(
                     "PDF Import",
-                    value: subscriptionManager.currentTier.hasPDFImport ? "Included" : "Not available",
-                    available: subscriptionManager.currentTier.hasPDFImport
+                    value: "Included",
+                    available: true
                 )
                 featureItem(
                     "AI Features",
-                    value: subscriptionManager.currentTier.hasAIFeatures ? "Included" : "Not available",
+                    value: kSubscriptionBypassEnabled ? "With daily limit" : (subscriptionManager.currentTier.hasAIFeatures ? "Included" : "Not available"),
                     available: subscriptionManager.currentTier.hasAIFeatures
                 )
             }
             
-            // Expiration date if subscribed
-            if case .subscribed(_, let expirationDate) = subscriptionManager.subscriptionStatus,
+            // Expiration date if subscribed (only relevant when bypass is disabled)
+            if !kSubscriptionBypassEnabled,
+               case .subscribed(_, let expirationDate) = subscriptionManager.subscriptionStatus,
                let date = expirationDate {
                 Divider()
                 HStack {

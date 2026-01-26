@@ -105,14 +105,16 @@ struct BlackboardView: View {
     @State private var isShowingChat = false
     @State private var isShowingCalculator = false
     @State private var isShowingSettings = false
-    @State private var isFingerDrawingEnabled = false
+    @AppStorage("isFingerDrawingEnabled") private var isFingerDrawingEnabled = false
     @State private var chatContext: String?
     @State private var isShowingPaywall = false
     @State private var isPenToolbarCollapsed = false
     @State private var isShowingExportOptions = false
     @State private var showingSignOutAlert = false
     @State private var showingDeleteAccountAlert = false
+    @State private var isAIProcessing = false
     @StateObject private var geminiService = GeminiService()
+    @StateObject private var quotaManager = AIQuotaManager.shared
     
     var canvasContent: some View {
         ZStack(alignment: .topLeading) {
@@ -331,9 +333,8 @@ struct BlackboardView: View {
     
     var toolbarOverlay: some View {
         ZStack {
-            // Floating Toolbar (Bottom Center)
+            // Floating Toolbar (Top Center)
             VStack {
-                Spacer()
                 ToolbarView(
                     selectedTool: $selectedTool,
                     strokeColor: $viewModel.currentStrokeColor,
@@ -385,7 +386,8 @@ struct BlackboardView: View {
                     canUndo: viewModel.canUndo,
                     canRedo: viewModel.canRedo
                 )
-                .padding(.bottom, 20)
+                .padding(.top, 60)
+                Spacer()
             }
             .sheet(isPresented: $isShowingExportOptions) {
                 ExportOptionsView(viewModel: viewModel, noteTitle: note.title)
@@ -393,9 +395,12 @@ struct BlackboardView: View {
             .sheet(isPresented: $isShowingSettings) {
                 NavigationView {
                     Form {
-                        Section(header: Text("Subscription")) {
-                            SubscriptionStatusView()
-                                .environmentObject(subscriptionManager)
+                        // Hide subscription section when bypass is enabled
+                        if !kSubscriptionBypassEnabled {
+                            Section(header: Text("Subscription")) {
+                                SubscriptionStatusView()
+                                    .environmentObject(subscriptionManager)
+                            }
                         }
                         
                         Section(header: Text("Input")) {
@@ -594,20 +599,61 @@ struct BlackboardView: View {
                 .zIndex(100)
             }
             
-            // DEBUG: Subscription Status Overlay (remove after testing)
+            // Status Overlay (top-left corner)
             VStack {
                 HStack {
-                    Text("Tier: \(subscriptionManager.currentTier.displayName)")
+                    if kSubscriptionBypassEnabled {
+                        // Show AI quota when bypass is enabled
+                        HStack(spacing: 4) {
+                            Image(systemName: quotaManager.canMakeRequest ? "sparkles" : "exclamationmark.triangle.fill")
+                            Text("\(quotaManager.remainingQuota)/\(AIQuotaManager.dailyLimit)")
+                        }
                         .font(.caption)
                         .padding(6)
-                        .background(subscriptionManager.currentTier == .pro ? Color.purple : (subscriptionManager.currentTier == .basic ? Color.blue : Color.gray))
+                        .background(quotaManager.canMakeRequest ? Color.purple : Color.orange)
                         .foregroundColor(.white)
                         .cornerRadius(6)
+                    } else {
+                        // Show tier badge when bypass is disabled
+                        Text("Tier: \(subscriptionManager.currentTier.displayName)")
+                            .font(.caption)
+                            .padding(6)
+                            .background(subscriptionManager.currentTier == .pro ? Color.purple : (subscriptionManager.currentTier == .basic ? Color.blue : Color.gray))
+                            .foregroundColor(.white)
+                            .cornerRadius(6)
+                    }
                     Spacer()
                 }
                 .padding(.top, 50)
                 .padding(.leading, 20)
                 Spacer()
+            }
+            
+            // AI Processing Indicator
+            if isAIProcessing {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .tint(.white)
+                            Text("AI thinking...")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(Color.purple.opacity(0.9))
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                        .shadow(radius: 5)
+                        Spacer()
+                    }
+                    .padding(.bottom, 120)
+                }
+                .transition(.opacity)
+                .animation(.easeInOut(duration: 0.2), value: isAIProcessing)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -616,6 +662,12 @@ struct BlackboardView: View {
 
     
     func performAIAction(mode: GeminiService.AIMode, box: CGRect) {
+        // Check AI quota before proceeding
+        guard quotaManager.checkAndRecordUsage() else {
+            viewModel.addText("Daily AI limit reached (\(AIQuotaManager.dailyLimit) requests). Resets at midnight.", at: CGPoint(x: box.maxX + 20, y: box.minY))
+            return
+        }
+        
         let context = viewModel.getSelectedContent()
         let center = CGPoint(x: box.maxX + 20, y: box.minY)
         
@@ -643,14 +695,40 @@ struct BlackboardView: View {
         renderer.scale = UIScreen.main.scale
         let image = renderer.uiImage
         
+        isAIProcessing = true
+        
         Task {
             do {
                 let response = try await geminiService.sendSelectionContext(context, image: image, mode: mode)
                 let (cleanText, graphCommand) = geminiService.parseResponse(response)
                 
                 await MainActor.run {
+                    isAIProcessing = false
+                    
                     if !cleanText.isEmpty {
-                        viewModel.addText(cleanText, at: center)
+                        // Estimate the size of the text to be added
+                        let font = UIFont(name: "Caveat-Regular", size: 20) ?? .systemFont(ofSize: 20)
+                        let maxConstraint = CGSize(width: 500, height: CGFloat.greatestFiniteMagnitude)
+                        let boundingRect = cleanText.boundingRect(
+                            with: maxConstraint,
+                            options: .usesLineFragmentOrigin,
+                            attributes: [.font: font],
+                            context: nil
+                        )
+                        let estimatedSize = CGSize(
+                            width: max(boundingRect.width + 40, 100),
+                            height: max(boundingRect.height + 40, 50)
+                        )
+                        
+                        // Find blank space near the selection that won't overlap other elements
+                        let preferredPosition = CGPoint(x: box.maxX + 20, y: box.minY)
+                        let smartPosition = viewModel.findBlankSpace(
+                            near: preferredPosition,
+                            size: estimatedSize,
+                            excludeIds: viewModel.selectedElementIds
+                        )
+                        
+                        viewModel.addText(cleanText, at: smartPosition)
                     }
                     
                     if let command = graphCommand {
@@ -658,6 +736,9 @@ struct BlackboardView: View {
                     }
                 }
             } catch {
+                await MainActor.run {
+                    isAIProcessing = false
+                }
                 print("AI Error: \(error)")
             }
         }

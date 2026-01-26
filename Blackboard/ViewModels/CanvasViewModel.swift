@@ -401,6 +401,33 @@ class CanvasViewModel: ObservableObject {
         currentStroke = stroke
     }
     
+    /// Start an eraser stroke that draws with paper color
+    func startEraserStroke(at point: CGPoint) {
+        let canvasPoint = toCanvasCoordinates(point)
+        let clampedPoint = CGPoint(
+            x: max(0, min(canvasPoint.x, CanvasConstants.a4Width)),
+            y: max(0, min(canvasPoint.y, CanvasConstants.a4Height))
+        )
+        
+        // Eraser uses paper color and a thicker width for better coverage
+        let eraserWidth = currentStrokeWidth * 3
+        let strokeData = StrokeData(
+            points: [StrokeData.Point(x: clampedPoint.x, y: clampedPoint.y)],
+            color: CanvasConstants.paperColor,
+            width: eraserWidth,
+            brushType: .pen
+        )
+        
+        currentStroke = CanvasElementData(
+            id: UUID(),
+            type: .stroke,
+            x: 0, y: 0,
+            width: 0, height: 0,
+            zIndex: 1,
+            data: .stroke(strokeData)
+        )
+    }
+    
     func endStroke() {
         guard let stroke = currentStroke, case .stroke(let data) = stroke.data, !data.points.isEmpty else {
             currentStroke = nil
@@ -417,8 +444,10 @@ class CanvasViewModel: ObservableObject {
             return
         }
         
-        let width = maxX - minX
-        let height = maxY - minY
+        // Ensure minimum dimensions to account for stroke width
+        // This prevents straight horizontal/vertical lines from having 0 width/height
+        let width = max(maxX - minX, data.width)
+        let height = max(maxY - minY, data.width)
         
         // Normalize points relative to bounding box
         let normalizedPoints = data.points.map { StrokeData.Point(x: $0.x - minX, y: $0.y - minY) }
@@ -773,6 +802,99 @@ class CanvasViewModel: ObservableObject {
             }
         }
         return content
+    }
+    
+    /// Find a blank space on the canvas near the preferred position that doesn't overlap existing elements
+    /// - Parameters:
+    ///   - preferredPosition: The ideal position to place the new content
+    ///   - size: The size of the new content to place
+    ///   - excludeIds: Element IDs to exclude from collision detection (e.g., selected elements)
+    /// - Returns: A position that doesn't overlap other elements, or the preferred position if no better spot found
+    func findBlankSpace(near preferredPosition: CGPoint, size: CGSize, excludeIds: Set<UUID> = []) -> CGPoint {
+        let proposedRect = CGRect(origin: preferredPosition, size: size)
+        
+        // Get all element bounding boxes except excluded ones
+        let existingRects = elements.compactMap { element -> CGRect? in
+            guard !excludeIds.contains(element.id) else { return nil }
+            return CGRect(x: element.x, y: element.y, width: element.width, height: element.height)
+        }
+        
+        // Check if preferred position works
+        if !existingRects.contains(where: { $0.intersects(proposedRect) }) {
+            // Ensure it's within canvas bounds
+            let clampedX = max(0, min(preferredPosition.x, CanvasConstants.a4Width - size.width))
+            let clampedY = max(0, min(preferredPosition.y, CanvasConstants.a4Height - size.height))
+            return CGPoint(x: clampedX, y: clampedY)
+        }
+        
+        // Try positions in a spiral pattern around preferred position
+        let spacing: CGFloat = 20
+        let maxAttempts = 50
+        
+        // Direction patterns: right, down, left, up
+        let directions: [(CGFloat, CGFloat)] = [
+            (1, 0),   // Right
+            (0, 1),   // Down
+            (-1, 0),  // Left
+            (0, -1)   // Up
+        ]
+        
+        var currentPos = preferredPosition
+        var stepSize: CGFloat = 1
+        var directionIndex = 0
+        var stepsInDirection = 0
+        var stepsBeforeTurn = 1
+        var turnCount = 0
+        
+        for _ in 0..<maxAttempts {
+            // Move in current direction
+            let dir = directions[directionIndex % 4]
+            currentPos.x += dir.0 * spacing
+            currentPos.y += dir.1 * spacing
+            stepsInDirection += 1
+            
+            // Check if this position is valid
+            let testRect = CGRect(origin: currentPos, size: size)
+            
+            // Ensure within canvas bounds
+            if currentPos.x >= 0 && currentPos.y >= 0 &&
+               currentPos.x + size.width <= CanvasConstants.a4Width &&
+               currentPos.y + size.height <= CanvasConstants.a4Height {
+                
+                // Check for collisions
+                if !existingRects.contains(where: { $0.intersects(testRect) }) {
+                    return currentPos
+                }
+            }
+            
+            // Spiral pattern: turn after completing steps in direction
+            if stepsInDirection >= Int(stepsBeforeTurn) {
+                stepsInDirection = 0
+                directionIndex += 1
+                turnCount += 1
+                
+                // Increase step size every 2 turns (completing a half-spiral)
+                if turnCount % 2 == 0 {
+                    stepsBeforeTurn += 1
+                }
+            }
+        }
+        
+        // Fallback: try positions below the selection
+        for yOffset in stride(from: size.height + 20, to: CanvasConstants.a4Height - size.height, by: spacing) {
+            let fallbackPos = CGPoint(x: preferredPosition.x, y: preferredPosition.y + yOffset)
+            let testRect = CGRect(origin: fallbackPos, size: size)
+            
+            if fallbackPos.y + size.height <= CanvasConstants.a4Height &&
+               !existingRects.contains(where: { $0.intersects(testRect) }) {
+                return fallbackPos
+            }
+        }
+        
+        // Ultimate fallback: clamp preferred position to canvas
+        let clampedX = max(0, min(preferredPosition.x, CanvasConstants.a4Width - size.width))
+        let clampedY = max(0, min(preferredPosition.y, CanvasConstants.a4Height - size.height))
+        return CGPoint(x: clampedX, y: clampedY)
     }
     
     func mergeSelection(image: UIImage, bounds: CGRect) {

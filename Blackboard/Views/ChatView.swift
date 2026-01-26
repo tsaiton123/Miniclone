@@ -4,6 +4,7 @@ import LaTeXSwiftUI
 
 struct ChatView: View {
     @StateObject private var geminiService = GeminiService()
+    @StateObject private var quotaManager = AIQuotaManager.shared
     @State private var messageText = ""
     @State private var messages: [ChatMessage] = []
     @State private var isLoading = false
@@ -21,11 +22,19 @@ struct ChatView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header
+            // Header with quota status
             HStack {
                 Text("Cognote")
                     .font(.headline)
                 Spacer()
+                // Quota indicator
+                HStack(spacing: 4) {
+                    Image(systemName: quotaManager.canMakeRequest ? "sparkles" : "exclamationmark.triangle.fill")
+                        .foregroundColor(quotaManager.canMakeRequest ? .blue : .orange)
+                    Text("\(quotaManager.remainingQuota)/\(AIQuotaManager.dailyLimit)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
             .padding()
             .background(Color(UIColor.secondarySystemBackground))
@@ -69,8 +78,9 @@ struct ChatView: View {
                 Button(action: { sendMessage() }) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 30))
+                        .foregroundColor(quotaManager.canMakeRequest ? .blue : .gray)
                 }
-                .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
+                .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading || !quotaManager.canMakeRequest)
             }
             .padding()
             .background(Color(UIColor.secondarySystemBackground))
@@ -100,6 +110,12 @@ struct ChatView: View {
         }
         
         guard !text.isEmpty else { return }
+        
+        // Check AI quota before proceeding
+        guard quotaManager.checkAndRecordUsage() else {
+            messages.append(ChatMessage(text: "Daily AI limit reached (\(AIQuotaManager.dailyLimit) requests). Your quota resets at midnight.", isUser: false))
+            return
+        }
         
         if !isContextMessage {
             let userMessage = ChatMessage(text: text, isUser: true)
