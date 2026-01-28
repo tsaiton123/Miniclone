@@ -8,6 +8,7 @@ struct CanvasElementView: View {
     let isSelected: Bool
     var onDelete: () -> Void
     var isEditing: Bool = false
+    var isSnapshot: Bool = false
     var onTextChange: ((String) -> Void)? = nil
     
     @State private var editedText: String = ""
@@ -47,17 +48,30 @@ struct CanvasElementView: View {
                     
                     // Text content is non-interactive, gestures pass to parent
                     // Calculate scale factor: base size is 20, scale proportionally
+                    // Calculate scale factor: base size is 20, scale proportionally
                     let scaleFactor = data.fontSize / 20.0
-                    ScrollView {
-                        LaTeX(data.text)
-                            .foregroundColor(Color(hex: data.color))
-                            .multilineTextAlignment(.leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .scaleEffect(scaleFactor, anchor: .topLeading)
-                            .frame(width: element.width / scaleFactor, alignment: .topLeading)
+                    
+                    if isSnapshot {
+                         // Direct render for snapshot (No ScrollView) to ensure ImageRenderer captures it
+                         LaTeX(data.text)
+                             .foregroundColor(Color(hex: data.color))
+                             .multilineTextAlignment(.leading)
+                             .fixedSize(horizontal: false, vertical: true)
+                             .scaleEffect(scaleFactor, anchor: .topLeading)
+                             .frame(width: element.width / scaleFactor, alignment: .topLeading)
+                             .frame(width: element.width, height: element.height, alignment: .topLeading)
+                    } else {
+                        ScrollView {
+                            LaTeX(data.text)
+                                .foregroundColor(Color(hex: data.color))
+                                .multilineTextAlignment(.leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .scaleEffect(scaleFactor, anchor: .topLeading)
+                                .frame(width: element.width / scaleFactor, alignment: .topLeading)
+                        }
+                        .frame(width: element.width, height: element.height, alignment: .topLeading)
+                        .allowsHitTesting(false)
                     }
-                    .frame(width: element.width, height: element.height, alignment: .topLeading)
-                    .allowsHitTesting(false)
                 }
             
             case .graph(let data):
@@ -79,6 +93,25 @@ struct CanvasElementView: View {
                             .offset(y: -element.height/2 - 20)
                     )
             
+
+            
+            case .bitmapInk(let data):
+                if let cachedImage = viewModel.imageCache[element.id] {
+                    Image(uiImage: cachedImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                } else if let uiImage = UIImage(data: Data(base64Encoded: data.src) ?? Data()) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .onAppear {
+                            viewModel.imageCache[element.id] = uiImage
+                        }
+                } else {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.2))
+                }
+
             case .image(let data):
                 if let cachedImage = viewModel.imageCache[element.id] {
                     Image(uiImage: cachedImage)
@@ -145,7 +178,8 @@ extension CanvasElementView: Equatable {
     static func == (lhs: CanvasElementView, rhs: CanvasElementView) -> Bool {
         return lhs.element == rhs.element &&
             lhs.isSelected == rhs.isSelected &&
-            lhs.isEditing == rhs.isEditing
+            lhs.isEditing == rhs.isEditing &&
+            lhs.isSnapshot == rhs.isSnapshot
     }
 }
 

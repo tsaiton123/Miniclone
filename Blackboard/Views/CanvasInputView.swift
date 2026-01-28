@@ -316,9 +316,8 @@ struct CanvasInputView: UIViewRepresentable {
                 isMovingSelection = true
                 parent.viewModel.startMovingSelection()
             } else if let elementId = parent.viewModel.findElement(at: location) {
+                // Just select it, don't start moving yet
                 parent.viewModel.selectElement(id: elementId)
-                isMovingSelection = true
-                parent.viewModel.startMovingSelection()
             } else {
                 parent.viewModel.startSelection(at: location)
             }

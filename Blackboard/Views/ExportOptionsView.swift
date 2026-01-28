@@ -17,6 +17,22 @@ struct ExportElementView: View {
                 GraphShape(data: data)
                     .stroke(Color(hex: data.color), lineWidth: 2)
                 
+
+                
+            case .bitmapInk(let data):
+                if let cachedImage = imageCache[element.id] {
+                    Image(uiImage: cachedImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                } else if let uiImage = UIImage(data: Data(base64Encoded: data.src) ?? Data()) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                } else {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.2))
+                }
+
             case .image(let data):
                 if let cachedImage = imageCache[element.id] {
                     Image(uiImage: cachedImage)

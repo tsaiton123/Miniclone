@@ -80,6 +80,7 @@ struct CanvasElementData: Codable, Identifiable {
         case graph
         case image
         case stroke
+        case bitmapInk
     }
 }
 
@@ -89,6 +90,7 @@ enum ElementContentData: Codable {
     case graph(GraphData)
     case image(ImageData)
     case stroke(StrokeData)
+    case bitmapInk(BitmapInkData)
     
     // Custom decoding to handle polymorphic types
     init(from decoder: Decoder) throws {
@@ -101,6 +103,8 @@ enum ElementContentData: Codable {
             self = .image(value)
         } else if let value = try? container.decode(StrokeData.self, forKey: .stroke) {
             self = .stroke(value)
+        } else if let value = try? container.decode(BitmapInkData.self, forKey: .bitmapInk) {
+            self = .bitmapInk(value)
         } else {
             throw DecodingError.dataCorrupted(DecodingError.Context(codingPath: container.codingPath, debugDescription: "Unknown element data type"))
         }
@@ -117,11 +121,13 @@ enum ElementContentData: Codable {
             try container.encode(data, forKey: .image)
         case .stroke(let data):
             try container.encode(data, forKey: .stroke)
+        case .bitmapInk(let data):
+            try container.encode(data, forKey: .bitmapInk)
         }
     }
     
     enum CodingKeys: String, CodingKey {
-        case text, graph, image, stroke
+        case text, graph, image, stroke, bitmapInk
     }
 }
 
@@ -144,6 +150,12 @@ struct GraphData: Codable {
 
 struct ImageData: Codable {
     var src: String // Base64 or local path
+    var originalWidth: CGFloat
+    var originalHeight: CGFloat
+}
+
+struct BitmapInkData: Codable, Equatable {
+    var src: String // Base64
     var originalWidth: CGFloat
     var originalHeight: CGFloat
 }
@@ -261,6 +273,7 @@ extension ElementContentData: Equatable {
         case (.graph(let l), .graph(let r)): return l == r
         case (.image(let l), .image(let r)): return l == r
         case (.stroke(let l), .stroke(let r)): return l == r
+        case (.bitmapInk(let l), .bitmapInk(let r)): return l == r
         default: return false
         }
     }

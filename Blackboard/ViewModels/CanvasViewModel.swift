@@ -52,6 +52,7 @@ class CanvasViewModel: ObservableObject {
     // Eraser state tracking
     private var eraserPath: [CGPoint] = []
     @Published var currentEraserPosition: CGPoint? = nil
+    private var modifiedImageIds: Set<UUID> = []
     
     // Page management computed properties
     var pageCount: Int { pages.count }
@@ -432,41 +433,108 @@ class CanvasViewModel: ObservableObject {
     func endErasing() {
         eraserPath.removeAll()
         currentEraserPosition = nil
+        
+        // Persist modified images
+        if !modifiedImageIds.isEmpty {
+            for id in modifiedImageIds {
+               if let index = elements.firstIndex(where: { $0.id == id }),
+                  let cachedImage = imageCache[id],
+                  let pngData = cachedImage.pngData() {
+                   
+                   let base64 = pngData.base64EncodedString()
+                   var element = elements[index]
+                   
+                   if case .bitmapInk(var data) = element.data {
+                       data.src = base64
+                       element.data = .bitmapInk(data)
+                   } else if case .image(var data) = element.data {
+                       data.src = base64
+                       element.data = .image(data)
+                   }
+                   
+                   elements[index] = element
+               }
+            }
+            modifiedImageIds.removeAll()
+        }
+        
         saveCanvas()
     }
     
-    /// Erase stroke segments at a specific point
+    /// Erase stroke segments or whole elements at a specific point
     private func eraseStrokesAtPoint(_ point: CGPoint) {
         var elementsToRemove: [UUID] = []
         var elementsToAdd: [CanvasElementData] = []
         
         for element in elements {
-            guard case .stroke(let strokeData) = element.data else { continue }
-            
-            // Check if any point of this stroke is within eraser radius
-            let hasIntersection = strokeData.points.contains { strokePoint in
-                let absolutePoint = CGPoint(
-                    x: element.x + strokePoint.x,
-                    y: element.y + strokePoint.y
-                )
-                return distance(from: absolutePoint, to: point) <= currentEraserWidth
-            }
-            
-            guard hasIntersection else { continue }
-            
-            // Split the stroke, removing erased segments
-            let fragments = splitStroke(element: element, strokeData: strokeData, eraserPoint: point)
-            
-            if fragments.isEmpty {
-                // Entire stroke was erased
-                elementsToRemove.append(element.id)
-            } else if fragments.count == 1 && fragments[0].id == element.id {
-                // No actual split needed, stroke is still the same
+            switch element.data {
+            case .stroke(let strokeData):
+                // Check if any point of this stroke is within eraser radius
+                let hasIntersection = strokeData.points.contains { strokePoint in
+                    let absolutePoint = CGPoint(
+                        x: element.x + strokePoint.x,
+                        y: element.y + strokePoint.y
+                    )
+                    return distance(from: absolutePoint, to: point) <= currentEraserWidth
+                }
+                
+                guard hasIntersection else { continue }
+                
+                // Split the stroke, removing erased segments
+                let fragments = splitStroke(element: element, strokeData: strokeData, eraserPoint: point)
+                
+                if fragments.isEmpty {
+                    // Entire stroke was erased
+                    elementsToRemove.append(element.id)
+                } else if fragments.count == 1 && fragments[0].id == element.id {
+                    // No actual split needed, stroke is still the same
+                    continue
+                } else {
+                    // Replace original with fragments
+                    elementsToRemove.append(element.id)
+                    elementsToAdd.append(contentsOf: fragments)
+                }
+                
+            case .bitmapInk, .image:
+                // Partial Eraser for images/stamps: Mask pixels
+                let rect = CGRect(x: element.x, y: element.y, width: element.width, height: element.height)
+                
+                // Fast check: Eraser must intersect bounding box
+                let expandedRect = rect.insetBy(dx: -currentEraserWidth, dy: -currentEraserWidth)
+                guard expandedRect.contains(point) else { continue }
+                
+                // Get current image from cache
+                guard let image = imageCache[element.id] else { continue }
+                
+                // Perform drawing on Main Thread (usually safe for small updates, ensures sync)
+                let renderer = UIGraphicsImageRenderer(size: rect.size)
+                let newImage = renderer.image { context in
+                    // 1. Draw original image
+                    image.draw(in: CGRect(origin: .zero, size: rect.size))
+                    
+                    // 2. Clear the eraser circle
+                    let cgContext = context.cgContext
+                    cgContext.setBlendMode(.clear)
+                    cgContext.setFillColor(UIColor.clear.cgColor)
+                    
+                    let relativePoint = CGPoint(x: point.x - rect.minX, y: point.y - rect.minY)
+                    let eraserRect = CGRect(
+                        x: relativePoint.x - currentEraserWidth,
+                        y: relativePoint.y - currentEraserWidth,
+                        width: currentEraserWidth * 2,
+                        height: currentEraserWidth * 2
+                    )
+                    
+                    cgContext.fillEllipse(in: eraserRect)
+                }
+                
+                // Update Cache & State
+                imageCache[element.id] = newImage
+                modifiedImageIds.insert(element.id)
+                objectWillChange.send() // Force UI update
+                
+            default:
                 continue
-            } else {
-                // Replace original with fragments
-                elementsToRemove.append(element.id)
-                elementsToAdd.append(contentsOf: fragments)
             }
         }
         
@@ -704,6 +772,8 @@ class CanvasViewModel: ObservableObject {
         let idsAndData = currentElements.compactMap { element -> (UUID, String)? in
             if case .image(let data) = element.data {
                 return (element.id, data.src)
+            } else if case .bitmapInk(let data) = element.data {
+                return (element.id, data.src)
             }
             return nil
         }
@@ -794,6 +864,10 @@ class CanvasViewModel: ObservableObject {
         // Dynamic caching for new images
         if case .image(let data) = elementToAdd.data {
             if let uiImage = UIImage(data: Data(base64Encoded: data.src) ?? Data()) {
+                imageCache[elementToAdd.id] = uiImage
+            }
+        } else if case .bitmapInk(let data) = elementToAdd.data {
+             if let uiImage = UIImage(data: Data(base64Encoded: data.src) ?? Data()) {
                 imageCache[elementToAdd.id] = uiImage
             }
         }
@@ -960,6 +1034,8 @@ class CanvasViewModel: ObservableObject {
                     content += "Stroke (Handwriting)\n"
                 case .image:
                     content += "Image\n"
+                case .bitmapInk:
+                    content += "Bitmap Ink\n"
                 }
             }
         }
@@ -1078,6 +1154,127 @@ class CanvasViewModel: ObservableObject {
         selectedElementIds = [newElement.id]
         
         saveCanvas()
+    }
+    
+    func performInkjetPrinting(image: UIImage, bounds: CGRect) {
+        guard !selectedElementIds.isEmpty else { return }
+        saveState()
+        
+        // Capture original IDs to delete later
+        let originalIds = selectedElementIds
+        
+        // Run Inkjet algorithm
+        let inkElements = InkjetService.process(image: image)
+        
+        // Add new ink elements
+        for (inkData, rect) in inkElements {
+            // Include bounds offset
+            let newX = bounds.minX + rect.minX
+            let newY = bounds.minY + rect.minY
+            
+            let newElement = CanvasElementData(
+                id: UUID(),
+                type: .bitmapInk,
+                x: newX,
+                y: newY,
+                width: rect.width,
+                height: rect.height,
+                zIndex: elements.count,
+                data: .bitmapInk(inkData)
+            )
+            
+            // Cache the image
+            if let data = Data(base64Encoded: inkData.src), let uiImage = UIImage(data: data) {
+                 imageCache[newElement.id] = uiImage
+            }
+            
+            elements.append(newElement)
+        }
+        
+        // Remove original elements (REPLACE behavior)
+        elements.removeAll { originalIds.contains($0.id) }
+        
+        // Clear selection to show the result clearly
+        clearSelection()
+        saveCanvas()
+    }
+    
+    func cropSelection(bounds: CGRect) {
+        guard selectedElementIds.count == 1,
+              let id = selectedElementIds.first,
+              let index = elements.firstIndex(where: { $0.id == id }) else { return }
+        
+        let element = elements[index]
+        
+        // Only support Image and BitmapInk for now
+        var originalImage: UIImage?
+        var originalWidth: CGFloat = 0
+        var originalHeight: CGFloat = 0
+        
+        if case .image(let data) = element.data {
+            originalImage = imageCache[id] ?? UIImage(data: Data(base64Encoded: data.src) ?? Data())
+            originalWidth = data.originalWidth
+            originalHeight = data.originalHeight
+        } else if case .bitmapInk(let data) = element.data {
+             originalImage = imageCache[id] ?? UIImage(data: Data(base64Encoded: data.src) ?? Data())
+             originalWidth = data.originalWidth
+             originalHeight = data.originalHeight
+        } else {
+            return
+        }
+        
+        guard let image = originalImage, let cgImage = image.cgImage else { return }
+        
+        // 1. Calculate Crop Rect relative to the Element's current frame
+        // bounds is the new crop box in Canvas Coordinates
+        // element.x/y is the current TopLeft in Canvas Coordinates
+        
+        let relX = bounds.minX - element.x
+        let relY = bounds.minY - element.y
+        let relWidth = bounds.width
+        let relHeight = bounds.height
+        
+        // 2. Scale relative rect to actual Image Pixel Mapping
+        // The element might be scaled on canvas vs its original pixel size
+        let scaleX = originalWidth / element.width
+        let scaleY = originalHeight / element.height
+        
+        let cropPixelRect = CGRect(
+            x: relX * scaleX,
+            y: relY * scaleY,
+            width: relWidth * scaleX,
+            height: relHeight * scaleY
+        )
+        
+        // 3. Perform Crop
+        guard let croppedCGImage = cgImage.cropping(to: cropPixelRect) else { return }
+        let croppedImage = UIImage(cgImage: croppedCGImage)
+        
+        saveState()
+        
+        // 4. Update Element
+        var newElement = element
+        newElement.x = bounds.minX
+        newElement.y = bounds.minY
+        newElement.width = bounds.width
+        newElement.height = bounds.height
+        
+        let base64 = croppedImage.pngData()?.base64EncodedString() ?? ""
+        
+        if case .image = element.data {
+            newElement.data = .image(ImageData(src: base64, originalWidth: CGFloat(croppedCGImage.width), originalHeight: CGFloat(croppedCGImage.height)))
+        } else if case .bitmapInk = element.data {
+            newElement.data = .bitmapInk(BitmapInkData(src: base64, originalWidth: CGFloat(croppedCGImage.width), originalHeight: CGFloat(croppedCGImage.height)))
+        }
+        
+        // Update Cache
+        imageCache[newElement.id] = croppedImage
+        
+        elements[index] = newElement
+        saveCanvas()
+        
+        // Re-select to update UI bounds
+        selectedElementIds = [newElement.id]
     }
     
     // MARK: - Resizing Selection

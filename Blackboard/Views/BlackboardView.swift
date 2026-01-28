@@ -2,6 +2,9 @@ import SwiftUI
 import PDFKit
 import UniformTypeIdentifiers
 
+
+
+
 struct BlackboardView: View {
     var note: NoteItem
     @StateObject private var viewModel: CanvasViewModel
@@ -21,7 +24,9 @@ struct BlackboardView: View {
                 
                 gestureReceiver
                 
-                canvasContent
+                gestureReceiver
+                
+                canvasContent(geometry: geometry)
                 
                 toolbarOverlay
             }
@@ -119,18 +124,28 @@ struct BlackboardView: View {
     @State private var showingSignOutAlert = false
     @State private var showingDeleteAccountAlert = false
     @State private var isAIProcessing = false
+
+    @State private var isPreparingInkjet = false
+    @State private var inkjetPreWarmElements: [CanvasElementData] = []
+    
+    // Crop Mode State
+    @State private var isCropping = false
+    @State private var cropRect: CGRect?
+    
     @StateObject private var geminiService = GeminiService()
+
+
     @StateObject private var quotaManager = AIQuotaManager.shared
     
-    var canvasContent: some View {
+    func canvasContent(geometry: GeometryProxy) -> some View {
         ZStack(alignment: .topLeading) {
             // A4 Paper Background
             Rectangle()
-                .fill(Color(hex: CanvasConstants.paperColor))
+                .fill(isPreparingInkjet ? Color.white : Color(hex: CanvasConstants.paperColor))
                 .frame(width: CanvasConstants.a4Width, height: CanvasConstants.a4Height)
                 .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
+                .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
                 .allowsHitTesting(false)
-            
             
             ForEach(viewModel.elements) { element in
                 CanvasElementView(
@@ -153,26 +168,33 @@ struct BlackboardView: View {
                         viewModel.editingElementId = element.id
                     }
                 }
+                .onTapGesture {
+                    if selectedTool == .select {
+                        viewModel.selectElement(id: element.id)
+                    }
+                }
                 .gesture(
                     DragGesture()
                         .onChanged { value in
                             if selectedTool == .select {
-                                if !viewModel.selectedElementIds.contains(element.id) {
-                                    viewModel.selectElement(id: element.id)
+                                // Only move if the element is already selected
+                                if viewModel.selectedElementIds.contains(element.id) {
+                                    if !isMovingSelection {
+                                        isMovingSelection = true
+                                        viewModel.startMovingSelection()
+                                    }
+                                    
+                                    viewModel.moveSelection(translation: value.translation)
                                 }
-                                
-                                if !isMovingSelection {
-                                    isMovingSelection = true
-                                    viewModel.startMovingSelection()
-                                }
-                                
-                                viewModel.moveSelection(translation: value.translation)
                             }
                         }
                         .onEnded { _ in
                             if selectedTool == .select {
-                                viewModel.endMovingSelection()
-                                isMovingSelection = false
+                                // Only end moving if we were actually moving
+                                if isMovingSelection {
+                                    viewModel.endMovingSelection()
+                                    isMovingSelection = false
+                                }
                             }
                         }
                 )
@@ -206,132 +228,339 @@ struct BlackboardView: View {
                     .position(eraserPos)
             }
             
-            // Render Selection Box
-            if let box = viewModel.selectedElementsBounds {
-                ZStack(alignment: .top) {
-                    Rectangle()
-                        .fill(Color.blue.opacity(0.1))
-                        .border(Color.blue, width: 1)
-                        .allowsHitTesting(false)
-                    
-                    // Resize Handle
-                    Circle()
-                        .fill(Color.white)
-                        .frame(width: 12, height: 12)
-                        .overlay(Circle().stroke(Color.blue, lineWidth: 1))
-                        .frame(width: 44, height: 44) // Increase touch target
-                        .contentShape(Circle())
-                        .position(x: box.width, y: box.height)
-                        .gesture(
-                            DragGesture()
-                                .onChanged { value in
-                                    if !isResizingSelection {
-                                        isResizingSelection = true
-                                        viewModel.startResizingSelection()
-                                    }
-                                    viewModel.resizeSelection(translation: value.translation)
-                                }
-                                .onEnded { _ in
-                                    viewModel.endResizingSelection()
-                                    isResizingSelection = false
-                                }
-                        )
-                    
-                    // Action Buttons
-                    HStack(spacing: 12) {
-                        // Ask AI Menu - Requires Pro subscription
-                        if subscriptionManager.currentTier.hasAIFeatures {
-                            Menu {
-                                Button(action: {
-                                    performAIAction(mode: .explain, box: box)
-                                }) {
-                                    Label("Explain", systemImage: "text.bubble")
-                                }
-                                
-                                Button(action: {
-                                    performAIAction(mode: .solve, box: box)
-                                }) {
-                                    Label("Solve", systemImage: "function")
-                                }
-                                
-                                Button(action: {
-                                    performAIAction(mode: .plot, box: box)
-                                }) {
-                                    Label("Plot", systemImage: "chart.xyaxis.line")
-                                }
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "sparkles")
-                                    Text("Ask AI")
-                                }
-                                .font(.caption)
-                                .padding(6)
-                                .background(Color.blue)
-                                .foregroundColor(.white)
-                                .cornerRadius(8)
-                                .shadow(radius: 2)
-                            }
-                        } else {
-                            // Show locked AI button that opens paywall
-                            Button(action: {
-                                isShowingPaywall = true
-                            }) {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "lock.fill")
-                                    Text("Ask AI")
-                                }
-                                .font(.caption)
-                                .padding(6)
-                                .background(Color.gray)
-                                .foregroundColor(.white)
-                                .cornerRadius(8)
-                                .shadow(radius: 2)
-                            }
+            // Render Selection Box or Crop Overlay
+            if let box = viewModel.selectedElementsBounds, !isPreparingInkjet {
+                if isCropping, let initialCropRect = cropRect {
+                     // ----------------- CROP OVERLAY -----------------
+                    ZStack {
+                        // Dimmed background helper (optional, maybe just the box)
+                        
+                        // Crop Rectangle
+                        Rectangle()
+                            .stroke(Color.white, lineWidth: 2)
+                            .shadow(radius: 2)
+                            .frame(width: cropRect!.width, height: cropRect!.height)
+                            .position(x: cropRect!.midX, y: cropRect!.midY)
+                        
+                        // Grid lines (3x3 Rule of Thirds) - Optional polish
+                        Path { path in
+                            let r = cropRect!
+                            // Verticals
+                            path.move(to: CGPoint(x: r.minX + r.width/3, y: r.minY))
+                            path.addLine(to: CGPoint(x: r.minX + r.width/3, y: r.maxY))
+                            path.move(to: CGPoint(x: r.minX + 2*r.width/3, y: r.minY))
+                            path.addLine(to: CGPoint(x: r.minX + 2*r.width/3, y: r.maxY))
+                            // Horizontals
+                            path.move(to: CGPoint(x: r.minX, y: r.minY + r.height/3))
+                            path.addLine(to: CGPoint(x: r.maxX, y: r.minY + r.height/3))
+                            path.move(to: CGPoint(x: r.minX, y: r.minY + 2*r.height/3))
+                            path.addLine(to: CGPoint(x: r.maxX, y: r.minY + 2*r.height/3))
+                        }
+                        .stroke(Color.white.opacity(0.5), lineWidth: 1)
+                        
+                        // Corner Handles
+                        // TL
+                        cropHandle(x: cropRect!.minX, y: cropRect!.minY) { drag in
+                            // Adjust Left and Top
+                            let newX = min(drag.location.x, cropRect!.maxX - 20)
+                            let newY = min(drag.location.y, cropRect!.maxY - 20)
+                            let newW = cropRect!.maxX - newX
+                            let newH = cropRect!.maxY - newY
+                            cropRect = CGRect(x: newX, y: newY, width: newW, height: newH)
+                        }
+                        // TR
+                        cropHandle(x: cropRect!.maxX, y: cropRect!.minY) { drag in
+                            // Adjust Right and Top
+                            let newX = max(drag.location.x, cropRect!.minX + 20)
+                            let newY = min(drag.location.y, cropRect!.maxY - 20)
+                            let newW = newX - cropRect!.minX
+                            let newH = cropRect!.maxY - newY
+                            cropRect = CGRect(x: cropRect!.minX, y: newY, width: newW, height: newH)
+                        }
+                        // BL
+                        cropHandle(x: cropRect!.minX, y: cropRect!.maxY) { drag in
+                            // Adjust Left and Bottom
+                            let newX = min(drag.location.x, cropRect!.maxX - 20)
+                            let newY = max(drag.location.y, cropRect!.minY + 20)
+                            let newW = cropRect!.maxX - newX
+                            let newH = newY - cropRect!.minY
+                            cropRect = CGRect(x: newX, y: cropRect!.minY, width: newW, height: newH)
+                        }
+                        // BR
+                        cropHandle(x: cropRect!.maxX, y: cropRect!.maxY) { drag in
+                            // Adjust Right and Bottom
+                            let newX = max(drag.location.x, cropRect!.minX + 20)
+                            let newY = max(drag.location.y, cropRect!.minY + 20)
+                            let newW = newX - cropRect!.minX
+                            let newH = newY - cropRect!.minY
+                            cropRect = CGRect(x: cropRect!.minX, y: cropRect!.minY, width: newW, height: newH)
                         }
                         
-                        // Merge Button
-                        Button(action: {
-                            // Capture Snapshot
-                            let selectedElements = viewModel.elements.filter { viewModel.selectedElementIds.contains($0.id) }
-                            let bounds = box
-                            
-                            // Create temporary elements relative to bounds
-                            let tempElements = selectedElements.map { original -> CanvasElementData in
-                                var temp = original
-                                temp.x -= bounds.minX
-                                temp.y -= bounds.minY
-                                return temp
+                        // Floating Actions (Confirm/Cancel)
+                        HStack(spacing: 20) {
+                            Button(action: {
+                                isCropping = false
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 44))
+                                    .foregroundColor(.white)
+                                    .background(Circle().fill(Color.red))
+                                    .shadow(radius: 4)
                             }
                             
-                            let snapshotView = ZStack(alignment: .topLeading) {
-                                ForEach(tempElements) { element in
-                                    CanvasElementView(element: element, viewModel: viewModel, isSelected: false, onDelete: {})
+                            Button(action: {
+                                viewModel.cropSelection(bounds: cropRect!)
+                                isCropping = false
+                            }) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 44))
+                                    .foregroundColor(.white)
+                                    .background(Circle().fill(Color.green))
+                                    .shadow(radius: 4)
+                            }
+                        }
+                        .position(x: cropRect!.midX, y: cropRect!.maxY + 60)
+                    }
+                    
+                } else {
+                    // ----------------- STANDARD SELECTION -----------------
+                    ZStack(alignment: .top) {
+                        Rectangle()
+                            .fill(Color.blue.opacity(0.1))
+                            .border(Color.blue, width: 1)
+                            .allowsHitTesting(false)
+                        
+                        // Resize Handle
+                        Circle()
+                            .fill(Color.white)
+                            .frame(width: 12, height: 12)
+                            .overlay(Circle().stroke(Color.blue, lineWidth: 1))
+                            .frame(width: 44, height: 44) // Increase touch target
+                            .contentShape(Circle())
+                            .position(x: box.width, y: box.height)
+                            .gesture(
+                                DragGesture()
+                                    .onChanged { value in
+                                        if !isResizingSelection {
+                                            isResizingSelection = true
+                                            viewModel.startResizingSelection()
+                                        }
+                                        viewModel.resizeSelection(translation: value.translation)
+                                    }
+                                    .onEnded { _ in
+                                        viewModel.endResizingSelection()
+                                        isResizingSelection = false
+                                    }
+                            )
+                        
+                        // Action Buttons
+                        HStack(spacing: 12) {
+                            // Ask AI Menu - Requires Pro subscription
+                            if subscriptionManager.currentTier.hasAIFeatures {
+                                Menu {
+                                    Button(action: {
+                                        performAIAction(mode: .explain, box: box)
+                                    }) {
+                                        Label("Explain", systemImage: "text.bubble")
+                                    }
+                                    
+                                    Button(action: {
+                                        performAIAction(mode: .solve, box: box)
+                                    }) {
+                                        Label("Solve", systemImage: "function")
+                                    }
+                                    
+                                    Button(action: {
+                                        performAIAction(mode: .plot, box: box)
+                                    }) {
+                                        Label("Plot", systemImage: "chart.xyaxis.line")
+                                    }
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "sparkles")
+                                        Text("Ask AI")
+                                    }
+                                    .font(.caption)
+                                    .padding(6)
+                                    .background(Color.blue)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(8)
+                                    .shadow(radius: 2)
+                                }
+                            } else {
+                                // Show locked AI button that opens paywall
+                                Button(action: {
+                                    isShowingPaywall = true
+                                }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "lock.fill")
+                                        Text("Ask AI")
+                                    }
+                                    .font(.caption)
+                                    .padding(6)
+                                    .background(Color.gray)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(8)
+                                    .shadow(radius: 2)
                                 }
                             }
-                            .frame(width: bounds.width, height: bounds.height)
                             
-                            let renderer = ImageRenderer(content: snapshotView)
-                            renderer.scale = UIScreen.main.scale
-                            if let image = renderer.uiImage {
-                                viewModel.mergeSelection(image: image, bounds: bounds)
+                            // Merge Button (Only if multiple items selected)
+                            if viewModel.selectedElementIds.count > 1 {
+                                Button(action: {
+                                    // Capture Snapshot
+                                    let selectedElements = viewModel.elements.filter { viewModel.selectedElementIds.contains($0.id) }
+                                    let bounds = box
+                                    
+                                    // Create temporary elements relative to bounds
+                                    let tempElements = selectedElements.map { original -> CanvasElementData in
+                                        var temp = original
+                                        temp.x -= bounds.minX
+                                        temp.y -= bounds.minY
+                                        return temp
+                                    }
+                                    
+                                    let snapshotView = ZStack(alignment: .topLeading) {
+                                        ForEach(tempElements) { element in
+                                            CanvasElementView(element: element, viewModel: viewModel, isSelected: false, onDelete: {})
+                                        }
+                                    }
+                                    .frame(width: bounds.width, height: bounds.height)
+                                    
+                                    let renderer = ImageRenderer(content: snapshotView)
+                                    renderer.scale = UIScreen.main.scale
+                                    if let image = renderer.uiImage {
+                                        viewModel.mergeSelection(image: image, bounds: bounds)
+                                    }
+                                }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "square.on.square")
+                                        Text("Merge")
+                                    }
+                                    .font(.caption)
+                                    .padding(6)
+                                    .background(Color.green)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(8)
+                                    .shadow(radius: 2)
+                                }
                             }
-                        }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "square.on.square")
-                                Text("Merge")
+                            
+                            // Crop Button (Only if 1 item selected)
+                            if viewModel.selectedElementIds.count == 1 {
+                                Button(action: {
+                                    cropRect = box
+                                    isCropping = true
+                                }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "crop")
+                                        Text("Crop")
+                                    }
+                                    .font(.caption)
+                                    .padding(6)
+                                    .background(Color.teal)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(8)
+                                    .shadow(radius: 2)
+                                }
                             }
-                            .font(.caption)
-                            .padding(6)
-                            .background(Color.green)
-                            .foregroundColor(.white)
-                            .cornerRadius(8)
-                            .shadow(radius: 2)
+                            
+                            // Inkjet Button
+                            Button(action: {
+                                // 1. Prepare UI for Wysiwyg Capture
+                                isPreparingInkjet = true
+                                
+                                // 2. Wait for UI update (background flash & hide selection)
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                    
+                                    // 3. Capture Screen
+                                    // Locate the window (assuming single window app)
+                                    guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                                          let window = windowScene.windows.first(where: { $0.isKeyWindow }) else {
+                                        isPreparingInkjet = false
+                                        return
+                                    }
+                                    
+                                    // Convert Canvas Coordinates (box) to Screen Coordinates
+                                    // Canvas Point -> * Scale + Offset -> View Point -> + Window Origin -> Screen Point
+                                    let scale = viewModel.scale
+                                    let offset = viewModel.offset
+                                    
+                                    // Find where the canvas content starts on screen relative to window
+                                    // We approximate this by looking at geometry.frame(in: .global).minX/Y
+                                    // But GeometryReader 'geometry' is available in body. We can use it here if we capture it in closure?
+                                    // Simplification: Assume pure transform based capture.
+                                    
+                                    // Calculate frame of the content within the Scroll/Zoom view
+                                    let contentRect = CGRect(
+                                        x: box.minX * scale + offset.width,
+                                        y: box.minY * scale + offset.height,
+                                        width: box.width * scale,
+                                        height: box.height * scale
+                                    )
+                                    
+                                    // Get the global position of the BlackboardView (the geometry reader container)
+                                    let globalFrame = geometry.frame(in: .global)
+                                    
+                                    // Final Screen Rect = View Origin + Content Rect
+                                    let screenRect = CGRect(
+                                        x: globalFrame.minX + contentRect.minX,
+                                        y: globalFrame.minY + contentRect.minY,
+                                        width: contentRect.width,
+                                        height: contentRect.height
+                                    )
+                                    
+                                    // scale for retina
+                                    let renderScale = UIScreen.main.scale
+                                    
+                                    // Draw Hierarchy
+                                    let renderer = UIGraphicsImageRenderer(bounds: window.bounds)
+                                    let fullScreenImage = renderer.image { ctx in
+                                        window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+                                    }
+                                    
+                                    // Crop Image
+                                    let cropRect = CGRect(
+                                        x: screenRect.origin.x * renderScale,
+                                        y: screenRect.origin.y * renderScale,
+                                        width: screenRect.width * renderScale,
+                                        height: screenRect.height * renderScale
+                                    )
+                                    
+                                    if let cgImage = fullScreenImage.cgImage?.cropping(to: cropRect) {
+                                        let croppedImage = UIImage(cgImage: cgImage)
+                                        
+                                        // Process Inkjet immediately
+                                        viewModel.performInkjetPrinting(image: croppedImage, bounds: box)
+                                    }
+                                    
+                                    // 4. Restore UI
+                                    isPreparingInkjet = false
+                                }
+                            }) {
+                                HStack(spacing: 4) {
+                                    if isPreparingInkjet {
+                                        ProgressView()
+                                            .tint(.white)
+                                    } else {
+                                        Image(systemName: "printer.fill")
+                                    }
+                                    Text("Inkjet")
+                                }
+                                .font(.caption)
+                                .padding(6)
+                                .background(Color.orange)
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                                .shadow(radius: 2)
+                            }
+                            .disabled(isPreparingInkjet)
                         }
+                        .offset(y: -40)
                     }
-                    .offset(y: -40)
+                    .frame(width: box.width, height: box.height)
+                    .position(x: box.midX, y: box.midY)
                 }
-                .frame(width: box.width, height: box.height)
-                .position(x: box.midX, y: box.midY)
             }
         }
         .frame(width: CanvasConstants.a4Width, height: CanvasConstants.a4Height)
@@ -496,6 +725,8 @@ struct BlackboardView: View {
                     }
                 }
             }
+
+
             
             // Page Controls (Bottom Left)
             VStack {
@@ -797,6 +1028,20 @@ struct BlackboardView: View {
         DispatchQueue.main.async {
             self.selectedPDFDocument = document
         }
+    }
+        
+    // MARK: - Crop Helper
+    func cropHandle(x: CGFloat, y: CGFloat, onChanged: @escaping (DragGesture.Value) -> Void) -> some View {
+        Circle()
+            .fill(Color.white)
+            .frame(width: 20, height: 20)
+            .overlay(Circle().stroke(Color.teal, lineWidth: 2))
+            .shadow(radius: 2)
+            .position(x: x, y: y)
+            .gesture(
+                DragGesture()
+                    .onChanged(onChanged)
+            )
     }
 }
 
