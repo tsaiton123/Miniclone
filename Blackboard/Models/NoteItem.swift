@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import UniformTypeIdentifiers
+import CoreTransferable
 
 // Custom UTType for NoteItem drag-and-drop
 extension UTType {

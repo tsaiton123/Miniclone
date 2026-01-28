@@ -5,8 +5,10 @@ struct ToolbarView: View {
     @Binding var strokeColor: String
     @Binding var strokeWidth: CGFloat
     @Binding var brushType: BrushType
+    @Binding var eraserWidth: CGFloat
     var isDrawing: Bool = false
     var onPenTapped: (() -> Void)? = nil
+    var onEraserTapped: (() -> Void)? = nil
     
     var onAddGraph: () -> Void
     var onAskAI: () -> Void
@@ -80,6 +82,26 @@ struct ToolbarView: View {
                 .padding(.horizontal)
                 .padding(.top, 8)
             }
+            
+            // Eraser Controls (Only visible when Eraser is selected and NOT drawing)
+            if selectedTool == .eraser && !isDrawing {
+                HStack(spacing: 12) {
+                    Text("Size")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    Slider(value: $eraserWidth, in: 5...50)
+                        .frame(width: 120)
+                        .accentColor(.gray)
+                    
+                    Text("\(Int(eraserWidth))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .frame(width: 24)
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
+            }
 
             
             HStack(spacing: 20) {
@@ -107,7 +129,14 @@ struct ToolbarView: View {
                     }
                     .foregroundColor(selectedTool == .pen ? .blue : .primary)
                     
-                    Button(action: { selectedTool = .eraser }) {
+                    Button(action: {
+                        if selectedTool == .eraser {
+                            // Toggle expand/collapse when already on eraser
+                            onEraserTapped?()
+                        } else {
+                            selectedTool = .eraser
+                        }
+                    }) {
                         Image(systemName: "eraser")
                     }
                     .foregroundColor(selectedTool == .eraser ? .blue : .primary)

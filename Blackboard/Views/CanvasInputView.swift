@@ -25,12 +25,18 @@ class DrawingCanvasView: UIView {
             
             // Handle Apple Pencil touches for drawing
             if touch.type == .pencil {
+                coordinator.parent.viewModel.isCanvasTouched = true
                 coordinator.handleDrawingTouchBegan(at: location, touch: touch)
             }
-            // Handle finger touches for drawing if enabled
-            else if touch.type == .direct && coordinator.parent.isFingerDrawingEnabled {
+            // Handle finger touches - always notify for toolbar collapse, but only draw if enabled
+            else if touch.type == .direct {
                 let tool = coordinator.parent.selectedTool
+                // Collapse toolbar when finger touches canvas while using pen/eraser tool
                 if tool == .pen || tool == .eraser {
+                    coordinator.parent.viewModel.isCanvasTouched = true
+                }
+                // Only draw with finger if finger drawing is enabled
+                if coordinator.parent.isFingerDrawingEnabled && (tool == .pen || tool == .eraser) {
                     coordinator.handleDrawingTouchBegan(at: location, touch: touch)
                 }
             }
@@ -73,12 +79,17 @@ class DrawingCanvasView: UIView {
         for touch in touches {
             // Handle Apple Pencil touches
             if touch.type == .pencil {
+                coordinator.parent.viewModel.isCanvasTouched = false
                 coordinator.handleDrawingTouchEnded(touch: touch)
             }
-            // Handle finger touches for drawing if enabled
-            else if touch.type == .direct && coordinator.parent.isFingerDrawingEnabled {
+            // Handle finger touches
+            else if touch.type == .direct {
                 let tool = coordinator.parent.selectedTool
                 if tool == .pen || tool == .eraser {
+                    coordinator.parent.viewModel.isCanvasTouched = false
+                }
+                // Handle drawing if enabled
+                if coordinator.parent.isFingerDrawingEnabled && (tool == .pen || tool == .eraser) {
                     coordinator.handleDrawingTouchEnded(touch: touch)
                 }
             }
@@ -90,10 +101,14 @@ class DrawingCanvasView: UIView {
         
         for touch in touches {
             if touch.type == .pencil {
+                coordinator.parent.viewModel.isCanvasTouched = false
                 coordinator.handleDrawingTouchEnded(touch: touch)
-            } else if touch.type == .direct && coordinator.parent.isFingerDrawingEnabled {
+            } else if touch.type == .direct {
                 let tool = coordinator.parent.selectedTool
                 if tool == .pen || tool == .eraser {
+                    coordinator.parent.viewModel.isCanvasTouched = false
+                }
+                if coordinator.parent.isFingerDrawingEnabled && (tool == .pen || tool == .eraser) {
                     coordinator.handleDrawingTouchEnded(touch: touch)
                 }
             }
@@ -180,7 +195,7 @@ struct CanvasInputView: UIViewRepresentable {
             if parent.selectedTool == .pen {
                 parent.viewModel.startStroke(at: location)
             } else if parent.selectedTool == .eraser {
-                parent.viewModel.startEraserStroke(at: location)
+                parent.viewModel.startErasing(at: location)
             } else if parent.selectedTool == .select {
                 handleSelectionStart(location: location)
             }
@@ -196,7 +211,7 @@ struct CanvasInputView: UIViewRepresentable {
             if parent.selectedTool == .pen {
                 parent.viewModel.continueStroke(at: location)
             } else if parent.selectedTool == .eraser {
-                parent.viewModel.continueStroke(at: location)
+                parent.viewModel.continueErasing(at: location)
             } else if parent.selectedTool == .select {
                 // Handle selection with pencil
                 if isMovingSelection {
@@ -223,7 +238,7 @@ struct CanvasInputView: UIViewRepresentable {
             if parent.selectedTool == .pen {
                 parent.viewModel.endStroke()
             } else if parent.selectedTool == .eraser {
-                parent.viewModel.endStroke()
+                parent.viewModel.endErasing()
             } else if parent.selectedTool == .select {
                 handleSelectionEnd()
             }

@@ -18,29 +18,46 @@ struct CanvasElementView: View {
             switch element.data {
             case .text(let data):
                 if isEditing {
-                    TextField("", text: $editedText)
+                    TextEditor(text: $editedText)
                         .font(.custom(data.fontFamily, size: data.fontSize))
                         .foregroundColor(Color(hex: data.color))
-                        .textFieldStyle(.plain)
+                        .scrollContentBackground(.hidden)
+                        .background(Color.clear)
                         .focused($isFocused)
-                        .onSubmit {
-                            onTextChange?(editedText)
-                        }
                         .onAppear {
                             editedText = data.text
+                            viewModel.pendingEditedText = data.text
                             isFocused = true
                         }
-                        .onChange(of: isEditing) { newValue in
+                        .onChange(of: editedText) { newValue in
+                            // Sync text changes to viewModel for saving on clearSelection
+                            viewModel.pendingEditedText = newValue
+                        }
+                        .onChange(of: isFocused) { newValue in
+                            // Save text when focus is lost
                             if !newValue {
                                 onTextChange?(editedText)
-                            } else {
-                                isFocused = true
                             }
                         }
+                        .frame(width: element.width, height: element.height, alignment: .topLeading)
                 } else {
-                    LaTeX(data.text)
-                        .font(.custom(data.fontFamily, size: data.fontSize))
-                        .foregroundColor(Color(hex: data.color))
+                    // Transparent background provides hit-testing area for parent gestures
+                    Color.clear
+                        .contentShape(Rectangle())
+                    
+                    // Text content is non-interactive, gestures pass to parent
+                    // Calculate scale factor: base size is 20, scale proportionally
+                    let scaleFactor = data.fontSize / 20.0
+                    ScrollView {
+                        LaTeX(data.text)
+                            .foregroundColor(Color(hex: data.color))
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .scaleEffect(scaleFactor, anchor: .topLeading)
+                            .frame(width: element.width / scaleFactor, alignment: .topLeading)
+                    }
+                    .frame(width: element.width, height: element.height, alignment: .topLeading)
+                    .allowsHitTesting(false)
                 }
             
             case .graph(let data):

@@ -89,8 +89,14 @@ struct BlackboardView: View {
             print("BlackboardView: isShowingDocumentPicker changed to \(newValue)")
         }
         .onChange(of: viewModel.currentStroke) { stroke in
-            // Collapse toolbar when starting to draw
+            // Collapse toolbar when starting to draw with pencil
             if stroke != nil {
+                isPenToolbarCollapsed = true
+            }
+        }
+        .onChange(of: viewModel.isCanvasTouched) { isTouched in
+            // Collapse toolbar when canvas is touched (by finger or pencil)
+            if isTouched {
                 isPenToolbarCollapsed = true
             }
         }
@@ -190,6 +196,14 @@ struct BlackboardView: View {
                         lineJoin: data.brushType.lineJoin
                     )
                 )
+            }
+            
+            // Render Eraser Circle Preview
+            if let eraserPos = viewModel.currentEraserPosition {
+                Circle()
+                    .stroke(Color.gray.opacity(0.8), lineWidth: 1.5)
+                    .frame(width: viewModel.currentEraserWidth * 2, height: viewModel.currentEraserWidth * 2)
+                    .position(eraserPos)
             }
             
             // Render Selection Box
@@ -320,8 +334,8 @@ struct BlackboardView: View {
                 .position(x: box.midX, y: box.midY)
             }
         }
-        .frame(width: CanvasConstants.a4Width, height: CanvasConstants.a4Height) // Enforce boundary
-        .clipped() // Hide overflow
+        .frame(width: CanvasConstants.a4Width, height: CanvasConstants.a4Height)
+        // Content can extend beyond canvas boundaries for visibility when dragging
         .scaleEffect(viewModel.scale, anchor: .topLeading)
         .offset(viewModel.offset)
     }
@@ -340,8 +354,12 @@ struct BlackboardView: View {
                     strokeColor: $viewModel.currentStrokeColor,
                     strokeWidth: $viewModel.currentStrokeWidth,
                     brushType: $viewModel.currentBrushType,
+                    eraserWidth: $viewModel.currentEraserWidth,
                     isDrawing: isPenToolbarCollapsed,
                     onPenTapped: {
+                        isPenToolbarCollapsed.toggle()
+                    },
+                    onEraserTapped: {
                         isPenToolbarCollapsed.toggle()
                     },
                     onAddGraph: {
@@ -706,18 +724,18 @@ struct BlackboardView: View {
                     isAIProcessing = false
                     
                     if !cleanText.isEmpty {
-                        // Estimate the size of the text to be added
-                        let font = UIFont(name: "Caveat-Regular", size: 20) ?? .systemFont(ofSize: 20)
-                        let maxConstraint = CGSize(width: 500, height: CGFloat.greatestFiniteMagnitude)
+                        // Estimate the size of the text to be added (50% smaller)
+                        let font = UIFont(name: "Caveat-Regular", size: 8) ?? .systemFont(ofSize: 8)
+                        let maxConstraint = CGSize(width: 200, height: CGFloat.greatestFiniteMagnitude)
                         let boundingRect = cleanText.boundingRect(
                             with: maxConstraint,
-                            options: .usesLineFragmentOrigin,
+                            options: [.usesLineFragmentOrigin, .usesFontLeading],
                             attributes: [.font: font],
                             context: nil
                         )
                         let estimatedSize = CGSize(
-                            width: max(boundingRect.width + 40, 100),
-                            height: max(boundingRect.height + 40, 50)
+                            width: max(boundingRect.width + 15, 75),
+                            height: max(boundingRect.height + 15, 30)
                         )
                         
                         // Find blank space near the selection that won't overlap other elements
@@ -728,7 +746,8 @@ struct BlackboardView: View {
                             excludeIds: viewModel.selectedElementIds
                         )
                         
-                        viewModel.addText(cleanText, at: smartPosition)
+                        // Use AI-specific method for proper sizing
+                        viewModel.addAIResponseText(cleanText, at: smartPosition)
                     }
                     
                     if let command = graphCommand {

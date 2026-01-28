@@ -110,6 +110,24 @@ struct FileSystemView: View {
                                         Label("Delete", systemImage: "trash")
                                     }
                                 }
+                                .draggable(item.id.uuidString)
+                                .dropDestination(for: String.self) { droppedStrings, _ in
+                                    // Only folders can accept drops
+                                    guard item.isFolder else { return false }
+                                    
+                                    for uuidString in droppedStrings {
+                                        guard let uuid = UUID(uuidString: uuidString),
+                                              let droppedItem = viewModel.findItem(by: uuid) else { continue }
+                                        
+                                        // Prevent dropping item on itself or its own children
+                                        if droppedItem.id != item.id && !isDescendant(droppedItem, of: item) {
+                                            viewModel.moveItem(droppedItem, to: item)
+                                        }
+                                    }
+                                    return true
+                                } isTargeted: { isTargeted in
+                                    // Visual feedback handled by SwiftUI default highlighting
+                                }
                             }
                         }
                         .padding(20)
@@ -158,7 +176,23 @@ struct FileSystemView: View {
                     viewModel.createFolder(title: newItemTitle)
                 }
             }
-            // Add a way to create folders too - maybe a separate check or action
+            .alert("Rename", isPresented: Binding(
+                get: { itemToRename != nil },
+                set: { if !$0 { itemToRename = nil } }
+            )) {
+                TextField("New Name", text: $renameTitle)
+                Button("Cancel", role: .cancel) {
+                    itemToRename = nil
+                }
+                Button("Rename") {
+                    if let item = itemToRename {
+                        viewModel.renameItem(item, newTitle: renameTitle)
+                        itemToRename = nil
+                    }
+                }
+            } message: {
+                Text("Enter a new name for \"\(itemToRename?.title ?? "")\"")
+            }
             .sheet(isPresented: $isShowingPaywall) {
                 PaywallView()
                     .environmentObject(subscriptionManager)
@@ -172,6 +206,18 @@ struct FileSystemView: View {
     }
     
     @State private var isShowingAddSheet = false
+    
+    /// Helper to check if an item is a descendant of another (to prevent circular moves)
+    private func isDescendant(_ potentialParent: NoteItem, of item: NoteItem) -> Bool {
+        var current: NoteItem? = item.parent
+        while let parent = current {
+            if parent.id == potentialParent.id {
+                return true
+            }
+            current = parent.parent
+        }
+        return false
+    }
 }
 
 struct FileSystemItemView: View {

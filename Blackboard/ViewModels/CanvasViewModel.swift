@@ -23,6 +23,7 @@ class CanvasViewModel: ObservableObject {
     @Published var currentStroke: CanvasElementData?
     @Published var selectionBox: CGRect?
     @Published var editingElementId: UUID?
+    @Published var pendingEditedText: String = ""  // Tracks text changes in real-time
     
     // Cache for images to avoid repeated base64 decoding
     @Published var imageCache: [UUID: UIImage] = [:]
@@ -31,6 +32,10 @@ class CanvasViewModel: ObservableObject {
     @Published var currentStrokeColor: String = "#000000"
     @Published var currentStrokeWidth: CGFloat = 2.0
     @Published var currentBrushType: BrushType = .pen
+    @Published var currentEraserWidth: CGFloat = 10.0
+    
+    // Track when canvas is being touched (for UI collapse behavior)
+    @Published var isCanvasTouched: Bool = false
     
     // Undo/Redo (per-page)
     private var undoStack: [[CanvasElementData]] = []
@@ -43,6 +48,10 @@ class CanvasViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var hasCenteredInitial = false
     private let saveTrigger = PassthroughSubject<Void, Never>()
+    
+    // Eraser state tracking
+    private var eraserPath: [CGPoint] = []
+    @Published var currentEraserPosition: CGPoint? = nil
     
     // Page management computed properties
     var pageCount: Int { pages.count }
@@ -348,9 +357,9 @@ class CanvasViewModel: ObservableObject {
         
         for (id, initialPos) in initialElementPositions {
             if let index = elements.firstIndex(where: { $0.id == id }) {
-                let element = elements[index]
-                let newX = max(0, min(initialPos.x + deltaX, CanvasConstants.a4Width - element.width))
-                let newY = max(0, min(initialPos.y + deltaY, CanvasConstants.a4Height - element.height))
+                // Allow elements to move freely without boundary clamping
+                let newX = initialPos.x + deltaX
+                let newY = initialPos.y + deltaY
                 
                 elements[index].x = newX
                 elements[index].y = newY
@@ -401,31 +410,149 @@ class CanvasViewModel: ObservableObject {
         currentStroke = stroke
     }
     
-    /// Start an eraser stroke that draws with paper color
-    func startEraserStroke(at point: CGPoint) {
+    /// Start erasing - initializes the eraser path
+    func startErasing(at point: CGPoint) {
+        saveState()
         let canvasPoint = toCanvasCoordinates(point)
-        let clampedPoint = CGPoint(
-            x: max(0, min(canvasPoint.x, CanvasConstants.a4Width)),
-            y: max(0, min(canvasPoint.y, CanvasConstants.a4Height))
-        )
+        eraserPath = [canvasPoint]
+        currentEraserPosition = canvasPoint
+        // Immediately process the first point
+        eraseStrokesAtPoint(canvasPoint)
+    }
+    
+    /// Continue erasing - adds points to path and erases intersecting strokes
+    func continueErasing(at point: CGPoint) {
+        let canvasPoint = toCanvasCoordinates(point)
+        eraserPath.append(canvasPoint)
+        currentEraserPosition = canvasPoint
+        eraseStrokesAtPoint(canvasPoint)
+    }
+    
+    /// End erasing - cleans up and saves
+    func endErasing() {
+        eraserPath.removeAll()
+        currentEraserPosition = nil
+        saveCanvas()
+    }
+    
+    /// Erase stroke segments at a specific point
+    private func eraseStrokesAtPoint(_ point: CGPoint) {
+        var elementsToRemove: [UUID] = []
+        var elementsToAdd: [CanvasElementData] = []
         
-        // Eraser uses paper color and a thicker width for better coverage
-        let eraserWidth = currentStrokeWidth * 3
-        let strokeData = StrokeData(
-            points: [StrokeData.Point(x: clampedPoint.x, y: clampedPoint.y)],
-            color: CanvasConstants.paperColor,
-            width: eraserWidth,
-            brushType: .pen
-        )
+        for element in elements {
+            guard case .stroke(let strokeData) = element.data else { continue }
+            
+            // Check if any point of this stroke is within eraser radius
+            let hasIntersection = strokeData.points.contains { strokePoint in
+                let absolutePoint = CGPoint(
+                    x: element.x + strokePoint.x,
+                    y: element.y + strokePoint.y
+                )
+                return distance(from: absolutePoint, to: point) <= currentEraserWidth
+            }
+            
+            guard hasIntersection else { continue }
+            
+            // Split the stroke, removing erased segments
+            let fragments = splitStroke(element: element, strokeData: strokeData, eraserPoint: point)
+            
+            if fragments.isEmpty {
+                // Entire stroke was erased
+                elementsToRemove.append(element.id)
+            } else if fragments.count == 1 && fragments[0].id == element.id {
+                // No actual split needed, stroke is still the same
+                continue
+            } else {
+                // Replace original with fragments
+                elementsToRemove.append(element.id)
+                elementsToAdd.append(contentsOf: fragments)
+            }
+        }
         
-        currentStroke = CanvasElementData(
-            id: UUID(),
-            type: .stroke,
-            x: 0, y: 0,
-            width: 0, height: 0,
-            zIndex: 1,
-            data: .stroke(strokeData)
-        )
+        // Apply changes
+        elements.removeAll { elementsToRemove.contains($0.id) }
+        elements.append(contentsOf: elementsToAdd)
+    }
+    
+    /// Split a stroke into fragments, removing points within eraser radius
+    private func splitStroke(
+        element: CanvasElementData,
+        strokeData: StrokeData,
+        eraserPoint: CGPoint
+    ) -> [CanvasElementData] {
+        var fragments: [[StrokeData.Point]] = []
+        var currentFragment: [StrokeData.Point] = []
+        
+        for strokePoint in strokeData.points {
+            let absolutePoint = CGPoint(
+                x: element.x + strokePoint.x,
+                y: element.y + strokePoint.y
+            )
+            
+            if distance(from: absolutePoint, to: eraserPoint) <= currentEraserWidth {
+                // This point is erased
+                if !currentFragment.isEmpty {
+                    fragments.append(currentFragment)
+                    currentFragment = []
+                }
+            } else {
+                // Keep absolute coordinates for now, we'll normalize later
+                currentFragment.append(StrokeData.Point(x: absolutePoint.x, y: absolutePoint.y))
+            }
+        }
+        
+        // Don't forget the last fragment
+        if !currentFragment.isEmpty {
+            fragments.append(currentFragment)
+        }
+        
+        // Convert fragments to CanvasElementData
+        return fragments.compactMap { fragmentPoints in
+            guard fragmentPoints.count >= 2 else { return nil }
+            
+            // Calculate bounding box for this fragment
+            let xs = fragmentPoints.map { $0.x }
+            let ys = fragmentPoints.map { $0.y }
+            
+            guard let minX = xs.min(), let maxX = xs.max(),
+                  let minY = ys.min(), let maxY = ys.max() else {
+                return nil
+            }
+            
+            let width = max(maxX - minX, strokeData.width)
+            let height = max(maxY - minY, strokeData.width)
+            
+            // Normalize points relative to new bounding box
+            let normalizedPoints = fragmentPoints.map {
+                StrokeData.Point(x: $0.x - minX, y: $0.y - minY)
+            }
+            
+            let newStrokeData = StrokeData(
+                points: normalizedPoints,
+                color: strokeData.color,
+                width: strokeData.width,
+                brushType: strokeData.brushType
+            )
+            
+            return CanvasElementData(
+                id: UUID(),
+                type: .stroke,
+                x: minX,
+                y: minY,
+                width: width,
+                height: height,
+                zIndex: element.zIndex,
+                data: .stroke(newStrokeData)
+            )
+        }
+    }
+    
+    /// Calculate distance between two points
+    private func distance(from p1: CGPoint, to p2: CGPoint) -> CGFloat {
+        let dx = p1.x - p2.x
+        let dy = p1.y - p2.y
+        return sqrt(dx * dx + dy * dy)
     }
     
     func endStroke() {
@@ -661,18 +788,17 @@ class CanvasViewModel: ObservableObject {
     
     func addElement(_ element: CanvasElementData) {
         saveState()
-        var clampedElement = element
-        clampedElement.x = max(0, min(element.x, CanvasConstants.a4Width - element.width))
-        clampedElement.y = max(0, min(element.y, CanvasConstants.a4Height - element.height))
+        // Allow elements to be placed without boundary clamping
+        var elementToAdd = element
         
         // Dynamic caching for new images
-        if case .image(let data) = clampedElement.data {
+        if case .image(let data) = elementToAdd.data {
             if let uiImage = UIImage(data: Data(base64Encoded: data.src) ?? Data()) {
-                imageCache[clampedElement.id] = uiImage
+                imageCache[elementToAdd.id] = uiImage
             }
         }
         
-        elements.append(clampedElement)
+        elements.append(elementToAdd)
         saveCanvas()
     }
     
@@ -704,9 +830,10 @@ class CanvasViewModel: ObservableObject {
     }
     
     func addText(_ text: String, at point: CGPoint = CGPoint(x: 100, y: 100)) {
-        // Calculate size
-        let font = UIFont(name: "Caveat-Regular", size: 20) ?? .systemFont(ofSize: 20)
-        let maxConstraint = CGSize(width: 500, height: CGFloat.greatestFiniteMagnitude)
+        // Calculate size - reduced to 50% of original default
+        let fontSize: CGFloat = 14  // Reduced from 20
+        let font = UIFont(name: "Caveat-Regular", size: fontSize) ?? .systemFont(ofSize: fontSize)
+        let maxConstraint = CGSize(width: 250, height: CGFloat.greatestFiniteMagnitude)  // Reduced from 500
         let boundingRect = text.boundingRect(
             with: maxConstraint,
             options: .usesLineFragmentOrigin,
@@ -714,22 +841,51 @@ class CanvasViewModel: ObservableObject {
             context: nil
         )
         
-        let width = max(boundingRect.width + 40, 100)
-        let height = max(boundingRect.height + 40, 50)
+        let width = max(boundingRect.width + 20, 50)   // Reduced from +40, min 100
+        let height = max(boundingRect.height + 20, 25)  // Reduced from +40, min 50
         
-        // Clamp position to boundary
-        let clampedX = max(0, min(point.x, CanvasConstants.a4Width - width))
-        let clampedY = max(0, min(point.y, CanvasConstants.a4Height - height))
+        // Use position directly without boundary clamping
+        let newElement = CanvasElementData(
+            id: UUID(),
+            type: .text,
+            x: point.x,
+            y: point.y,
+            width: width,
+            height: height,
+            zIndex: elements.count,
+            data: .text(TextData(text: text, fontSize: fontSize, fontFamily: "Caveat", color: "#000000"))
+        )
+        
+        addElement(newElement)
+    }
+    
+    /// Add AI-generated text with proper sizing to fit all content
+    func addAIResponseText(_ text: String, at point: CGPoint) {
+        // AI response font - 50% smaller
+        let fontSize: CGFloat = 8
+        let font = UIFont(name: "Caveat-Regular", size: fontSize) ?? .systemFont(ofSize: fontSize)
+        let maxWidth: CGFloat = 200  // Reduced from 400
+        let maxConstraint = CGSize(width: maxWidth, height: CGFloat.greatestFiniteMagnitude)
+        let boundingRect = text.boundingRect(
+            with: maxConstraint,
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font],
+            context: nil
+        )
+        
+        // Add padding and ensure minimum size, but NO maximum height constraint
+        let width = max(boundingRect.width + 15, 75)   // Reduced from +30, min 150
+        let height = max(boundingRect.height + 15, 30)  // Reduced from +30, min 60
         
         let newElement = CanvasElementData(
             id: UUID(),
             type: .text,
-            x: clampedX,
-            y: clampedY,
+            x: point.x,
+            y: point.y,
             width: width,
             height: height,
             zIndex: elements.count,
-            data: .text(TextData(text: text, fontSize: 20, fontFamily: "Caveat", color: "#000000"))
+            data: .text(TextData(text: text, fontSize: fontSize, fontFamily: "Caveat", color: "#000000"))
         )
         
         addElement(newElement)
@@ -782,7 +938,13 @@ class CanvasViewModel: ObservableObject {
     }
     
     func clearSelection() {
+        // Save any pending text edits before clearing
+        if let editingId = editingElementId, !pendingEditedText.isEmpty {
+            updateElementText(id: editingId, text: pendingEditedText)
+            pendingEditedText = ""
+        }
         selectedElementIds.removeAll()
+        editingElementId = nil  // Exit edit mode when selection is cleared
     }
     
     func getSelectedContent() -> String {
@@ -819,12 +981,10 @@ class CanvasViewModel: ObservableObject {
             return CGRect(x: element.x, y: element.y, width: element.width, height: element.height)
         }
         
-        // Check if preferred position works
+        // Check if preferred position works (no collision with other elements)
         if !existingRects.contains(where: { $0.intersects(proposedRect) }) {
-            // Ensure it's within canvas bounds
-            let clampedX = max(0, min(preferredPosition.x, CanvasConstants.a4Width - size.width))
-            let clampedY = max(0, min(preferredPosition.y, CanvasConstants.a4Height - size.height))
-            return CGPoint(x: clampedX, y: clampedY)
+            // Return preferred position without boundary clamping
+            return preferredPosition
         }
         
         // Try positions in a spiral pattern around preferred position
@@ -853,18 +1013,12 @@ class CanvasViewModel: ObservableObject {
             currentPos.y += dir.1 * spacing
             stepsInDirection += 1
             
-            // Check if this position is valid
+            // Check if this position is valid (no collision)
             let testRect = CGRect(origin: currentPos, size: size)
             
-            // Ensure within canvas bounds
-            if currentPos.x >= 0 && currentPos.y >= 0 &&
-               currentPos.x + size.width <= CanvasConstants.a4Width &&
-               currentPos.y + size.height <= CanvasConstants.a4Height {
-                
-                // Check for collisions
-                if !existingRects.contains(where: { $0.intersects(testRect) }) {
-                    return currentPos
-                }
+            // Check for collisions only (no boundary restriction)
+            if !existingRects.contains(where: { $0.intersects(testRect) }) {
+                return currentPos
             }
             
             // Spiral pattern: turn after completing steps in direction
@@ -880,21 +1034,18 @@ class CanvasViewModel: ObservableObject {
             }
         }
         
-        // Fallback: try positions below the selection
-        for yOffset in stride(from: size.height + 20, to: CanvasConstants.a4Height - size.height, by: spacing) {
+        // Fallback: try positions below the selection (no boundary limit)
+        for yOffset in stride(from: size.height + 20, to: size.height * 10, by: spacing) {
             let fallbackPos = CGPoint(x: preferredPosition.x, y: preferredPosition.y + yOffset)
             let testRect = CGRect(origin: fallbackPos, size: size)
             
-            if fallbackPos.y + size.height <= CanvasConstants.a4Height &&
-               !existingRects.contains(where: { $0.intersects(testRect) }) {
+            if !existingRects.contains(where: { $0.intersects(testRect) }) {
                 return fallbackPos
             }
         }
         
-        // Ultimate fallback: clamp preferred position to canvas
-        let clampedX = max(0, min(preferredPosition.x, CanvasConstants.a4Width - size.width))
-        let clampedY = max(0, min(preferredPosition.y, CanvasConstants.a4Height - size.height))
-        return CGPoint(x: clampedX, y: clampedY)
+        // Ultimate fallback: return preferred position without clamping
+        return preferredPosition
     }
     
     func mergeSelection(image: UIImage, bounds: CGRect) {
@@ -908,16 +1059,13 @@ class CanvasViewModel: ObservableObject {
         let width = bounds.width
         let height = bounds.height
         
-        // Clamp to boundary
-        let clampedX = max(0, min(bounds.minX, CanvasConstants.a4Width - width))
-        let clampedY = max(0, min(bounds.minY, CanvasConstants.a4Height - height))
-        
+        // Use position directly without boundary clamping
         // Create new merged element
         let newElement = CanvasElementData(
             id: UUID(),
             type: .image,
-            x: clampedX,
-            y: clampedY,
+            x: bounds.minX,
+            y: bounds.minY,
             width: width,
             height: height,
             zIndex: elements.count,
@@ -980,11 +1128,11 @@ class CanvasViewModel: ObservableObject {
                 let newWidth = initialElement.width * scaleX
                 let newHeight = initialElement.height * scaleY
                 
-                // Clamp to A4
-                element.x = max(0, min(newX, CanvasConstants.a4Width - newWidth))
-                element.y = max(0, min(newY, CanvasConstants.a4Height - newHeight))
-                element.width = min(newWidth, CanvasConstants.a4Width - element.x)
-                element.height = min(newHeight, CanvasConstants.a4Height - element.y)
+                // Apply new position and size without boundary clamping
+                element.x = newX
+                element.y = newY
+                element.width = newWidth
+                element.height = newHeight
                 
                 // Scale content
                 if case .stroke(let data) = initialElement.data {

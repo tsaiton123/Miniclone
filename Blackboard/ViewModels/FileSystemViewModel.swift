@@ -67,6 +67,13 @@ final class FileSystemViewModel: ObservableObject {
         save()
     }
     
+    // MARK: - Lookup
+    
+    func findItem(by id: UUID) -> NoteItem? {
+        let descriptor = FetchDescriptor<NoteItem>(predicate: #Predicate { $0.id == id })
+        return try? modelContext.fetch(descriptor).first
+    }
+    
     private func save() {
         try? modelContext.save()
     }
