@@ -679,101 +679,109 @@ class CanvasViewModel: ObservableObject {
     
     /// Erase stroke segments or whole elements at a specific point
     private func eraseStrokesAtPoint(_ point: CGPoint) {
-        var elementsToRemoveGlobal: [UUID] = []
-        var elementsToAddGlobal: [(index: Int, elements: [CanvasElementData])] = []
+        let pageIndex = currentPageIndex
+        guard pageIndex < pages.count else { return }
         
         let pageHeight = CanvasConstants.a4Height + CanvasViewModel.pageGap
+        var page = pages[pageIndex]
+        var elementsToRemove: [UUID] = []
+        var elementsToAdd: [CanvasElementData] = []
+        let yOffset = CGFloat(pageIndex) * pageHeight
         
-        for (pageIndex, var page) in pages.enumerated() {
-            var elementsToRemove: [UUID] = []
-            var elementsToAdd: [CanvasElementData] = []
-            let yOffset = CGFloat(pageIndex) * pageHeight
+        var hasChanges = false
+        
+        for element in page.elements {
+            // Adjust element for global checks
+            let elementRect = CGRect(x: element.x, y: element.y + yOffset, width: element.width, height: element.height)
             
-            for element in page.elements {
-                // Adjust element for global checks
+            // Fast check: Eraser must be near bounding box
+            let expandedRect = elementRect.insetBy(dx: -currentEraserWidth, dy: -currentEraserWidth)
+            guard expandedRect.contains(point) else { continue }
+            
+            switch element.data {
+            case .stroke(let strokeData):
+                // Check if any point of this stroke is within eraser radius
+                let hasIntersection = strokeData.points.contains { strokePoint in
+                    let absolutePoint = CGPoint(
+                        x: elementRect.minX + strokePoint.x,
+                        y: elementRect.minY + strokePoint.y
+                    )
+                    return distance(from: absolutePoint, to: point) <= currentEraserWidth
+                }
+                
+                guard hasIntersection else { continue }
+                
+                // Split the stroke, removing erased segments
+                // SplitStroke takes element in global coords
                 var globalElement = element
                 globalElement.y += yOffset
+                let fragments = splitStroke(element: globalElement, strokeData: strokeData, eraserPoint: point)
                 
-                switch element.data {
-                case .stroke(let strokeData):
-                    // Check if any point of this stroke is within eraser radius
-                    let hasIntersection = strokeData.points.contains { strokePoint in
-                        let absolutePoint = CGPoint(
-                            x: globalElement.x + strokePoint.x,
-                            y: globalElement.y + strokePoint.y
-                        )
-                        return distance(from: absolutePoint, to: point) <= currentEraserWidth
-                    }
-                    
-                    guard hasIntersection else { continue }
-                    
-                    // Split the stroke, removing erased segments
-                    let fragments = splitStroke(element: globalElement, strokeData: strokeData, eraserPoint: point)
-                    
-                    if fragments.isEmpty {
-                        // Entire stroke was erased
-                        elementsToRemove.append(element.id)
-                    } else if fragments.count == 1 && fragments[0].id == element.id {
-                        // No actual split needed, stroke is still the same
-                        continue
-                    } else {
-                        // Replace original with fragments
-                        elementsToRemove.append(element.id)
-                        // Fragments are global, need to convert back to local
-                        let localFragments = fragments.map { fragment -> CanvasElementData in
-                            var localFrag = fragment
-                            localFrag.y -= yOffset
-                            return localFrag
-                        }
-                        elementsToAdd.append(contentsOf: localFragments)
-                    }
-                    
-                case .bitmapInk, .image:
-                    // Partial Eraser for images/stamps: Mask pixels
-                    let rect = CGRect(x: globalElement.x, y: globalElement.y, width: globalElement.width, height: globalElement.height)
-                    
-                    // Fast check: Eraser must intersect bounding box
-                    let expandedRect = rect.insetBy(dx: -currentEraserWidth, dy: -currentEraserWidth)
-                    guard expandedRect.contains(point) else { continue }
-                    
-                    // Get current image from cache
-                    guard let image = imageCache[element.id] else { continue }
-                    
-                    // Perform drawing
-                    let renderer = UIGraphicsImageRenderer(size: rect.size)
-                    let newImage = renderer.image { context in
-                        image.draw(in: CGRect(origin: .zero, size: rect.size))
-                        
-                        let cgContext = context.cgContext
-                        cgContext.setBlendMode(.clear)
-                        cgContext.setFillColor(UIColor.clear.cgColor)
-                        
-                        let relativePoint = CGPoint(x: point.x - rect.minX, y: point.y - rect.minY)
-                        let eraserRect = CGRect(
-                            x: relativePoint.x - currentEraserWidth,
-                            y: relativePoint.y - currentEraserWidth,
-                            width: currentEraserWidth * 2,
-                            height: currentEraserWidth * 2
-                        )
-                        
-                        cgContext.fillEllipse(in: eraserRect)
-                    }
-                    
-                    // Update Cache & State
-                    imageCache[element.id] = newImage
-                    modifiedImageIds.insert(element.id)
-                    objectWillChange.send() // Force UI update
-                    
-                default:
+                if fragments.isEmpty {
+                    // Entire stroke was erased
+                    elementsToRemove.append(element.id)
+                    hasChanges = true
+                } else if fragments.count == 1 && fragments[0].id == element.id {
+                    // No actual split needed, stroke is still the same
                     continue
+                } else {
+                    // Replace original with fragments
+                    elementsToRemove.append(element.id)
+                    // Fragments are global, need to convert back to local
+                    let localFragments = fragments.map { fragment -> CanvasElementData in
+                        var localFrag = fragment
+                        localFrag.y -= yOffset
+                        return localFrag
+                    }
+                    elementsToAdd.append(contentsOf: localFragments)
+                    hasChanges = true
                 }
+                
+            case .bitmapInk, .image:
+                // Get current image from cache
+                guard let image = imageCache[element.id] else { continue }
+                
+                // Perform drawing
+                let renderer = UIGraphicsImageRenderer(size: elementRect.size)
+                let newImage = renderer.image { context in
+                    image.draw(in: CGRect(origin: .zero, size: elementRect.size))
+                    
+                    let cgContext = context.cgContext
+                    cgContext.setBlendMode(.clear)
+                    cgContext.setFillColor(UIColor.clear.cgColor)
+                    
+                    let relativePoint = CGPoint(x: point.x - elementRect.minX, y: point.y - elementRect.minY)
+                    let eraserRect = CGRect(
+                        x: relativePoint.x - currentEraserWidth,
+                        y: relativePoint.y - currentEraserWidth,
+                        width: currentEraserWidth * 2,
+                        height: currentEraserWidth * 2
+                    )
+                    
+                    cgContext.fillEllipse(in: eraserRect)
+                }
+                
+                // Update Cache & State
+                imageCache[element.id] = newImage
+                modifiedImageIds.insert(element.id)
+                hasChanges = true
+                
+            default:
+                continue
             }
-            
-            // Apply changes to this page
+        }
+        
+        // Apply changes to this page
+        if hasChanges {
             if !elementsToRemove.isEmpty || !elementsToAdd.isEmpty {
                 pages[pageIndex].elements.removeAll { elementsToRemove.contains($0.id) }
                 pages[pageIndex].elements.append(contentsOf: elementsToAdd)
             }
+            
+            // Only notify UI if there were actually changes
+            // Note: image changes already requested objectWillChange implicitly if they want, 
+            // but for strokes we need to make sure the view updates.
+            // Since elements is a computed property, updating pages will trigger it if pages is @Published.
         }
     }
     

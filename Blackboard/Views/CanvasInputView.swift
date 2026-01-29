@@ -51,8 +51,16 @@ class DrawingCanvasView: UIView {
             
             // Handle Apple Pencil touches for drawing
             if touch.type == .pencil {
-                // Process coalesced touches for smoother strokes
-                // Pass the original touch for identity check, but use coalesced location
+                let tool = coordinator.parent.selectedTool
+                
+                // For eraser, skip coalesced touches to save CPU as it's a radius-based tool
+                // Pen still needs coalesced touches for high-fidelity strokes
+                if tool == .eraser {
+                    coordinator.handleDrawingTouchMoved(at: location, touch: touch)
+                    continue
+                }
+                
+                // Process coalesced touches for smoother strokes (Pen tool)
                 if let coalescedTouches = event?.coalescedTouches(for: touch) {
                     for coalescedTouch in coalescedTouches {
                         let coalescedLocation = coalescedTouch.location(in: self)
