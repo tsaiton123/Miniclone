@@ -6,12 +6,31 @@ class CanvasViewModel: ObservableObject {
     // Multi-page support
     @Published var pages: [PageData] = [PageData(elements: [])]
     @Published var currentPageIndex: Int = 0
+    static let pageGap: CGFloat = 20
     
-    // Computed property for current page elements
+    // Computed property for all elements with their global vertical offset applied
+    var allElementsWithOffsets: [CanvasElementData] {
+        var shiftedElements: [CanvasElementData] = []
+        for (index, page) in pages.enumerated() {
+            let yOffset = CGFloat(index) * (CanvasConstants.a4Height + CanvasViewModel.pageGap)
+            let pageElements = page.elements.map { element -> CanvasElementData in
+                var newElement = element
+                newElement.y += yOffset
+                return newElement
+            }
+            shiftedElements.append(contentsOf: pageElements)
+        }
+        return shiftedElements
+    }
+
+    // Elements for the current page (legacy support/compatibility)
     var elements: [CanvasElementData] {
-        get { pages[safe: currentPageIndex]?.elements ?? [] }
+        get {
+            guard currentPageIndex < pages.count else { return [] }
+            return pages[currentPageIndex].elements
+        }
         set {
-            guard pages.indices.contains(currentPageIndex) else { return }
+            guard currentPageIndex < pages.count else { return }
             pages[currentPageIndex].elements = newValue
         }
     }
@@ -37,9 +56,14 @@ class CanvasViewModel: ObservableObject {
     // Track when canvas is being touched (for UI collapse behavior)
     @Published var isCanvasTouched: Bool = false
     
-    // Undo/Redo (per-page)
-    private var undoStack: [[CanvasElementData]] = []
-    private var redoStack: [[CanvasElementData]] = []
+    // Global Undo/Redo
+    private var undoStack: [[PageData]] = []
+    private var redoStack: [[PageData]] = []
+    
+    // Horizontal constraints and elasticity
+    @Published var viewportSize: CGSize = .zero
+    private let elasticResistance: CGFloat = 0.3
+    private let verticalPadding: CGFloat = 120
     
     private var noteId: UUID
     private var lastOffset: CGSize = .zero
@@ -60,6 +84,11 @@ class CanvasViewModel: ObservableObject {
     var isFirstPage: Bool { currentPageIndex == 0 }
     var isLastPage: Bool { currentPageIndex >= pages.count - 1 }
     
+    var totalCanvasHeight: CGFloat {
+        let count = CGFloat(pages.count)
+        return count * CanvasConstants.a4Height + (count - 1) * CanvasViewModel.pageGap
+    }
+    
     init(noteId: UUID) {
         self.noteId = noteId
         setupDebouncedSave()
@@ -78,49 +107,196 @@ class CanvasViewModel: ObservableObject {
     // MARK: - Panning & Zooming
     
     func handleDrag(translation: CGSize) {
-        offset = CGSize(width: lastOffset.width + translation.width, height: lastOffset.height + translation.height)
+        var newX = lastOffset.width + translation.width
+        var newY = lastOffset.height + translation.height
+        
+        // Horizontal Elasticity
+        let canvasWidth = CanvasConstants.a4Width * scale
+        let minX = viewportSize.width - canvasWidth
+        let maxX: CGFloat = 0
+        
+        if canvasWidth > viewportSize.width {
+            if newX > maxX {
+                let diff = newX - maxX
+                newX = maxX + diff * elasticResistance
+            } else if newX < minX {
+                let diff = newX - minX
+                newX = minX + diff * elasticResistance
+            }
+        } else {
+            let centerX = (viewportSize.width - canvasWidth) / 2
+            let limit: CGFloat = 30.0
+            if newX > centerX + limit {
+                let diff = newX - (centerX + limit)
+                newX = (centerX + limit) + diff * elasticResistance
+            } else if newX < centerX - limit {
+                let diff = newX - (centerX - limit)
+                newX = (centerX - limit) + diff * elasticResistance
+            }
+        }
+        
+        // Vertical Elasticity
+        let canvasHeight = totalCanvasHeight * scale
+        let minY = viewportSize.height - canvasHeight - verticalPadding
+        let maxY: CGFloat = verticalPadding
+        
+        if canvasHeight > (viewportSize.height - 2 * verticalPadding) {
+            if newY > maxY {
+                let diff = newY - maxY
+                newY = maxY + diff * elasticResistance
+            } else if newY < minY {
+                let diff = newY - minY
+                newY = minY + diff * elasticResistance
+            }
+        } else {
+            let centerY = (viewportSize.height - canvasHeight) / 2
+            let limit: CGFloat = 30.0
+            if newY > centerY + limit {
+                let diff = newY - (centerY + limit)
+                newY = (centerY + limit) + diff * elasticResistance
+            } else if newY < centerY - limit {
+                let diff = newY - (centerY - limit)
+                newY = (centerY - limit) + diff * elasticResistance
+            }
+        }
+        
+        offset = CGSize(width: newX, height: newY)
+        updateCurrentPageIndex()
     }
     
     func endDrag(translation: CGSize) {
         handleDrag(translation: translation)
-        lastOffset = offset
+        snapToBoundaries(animated: true)
     }
     
     func handleMagnification(value: CGFloat, center: CGPoint) {
         let newScale = lastScale * value
         
         // Calculate offset adjustment to keep the pinch center point stationary
-        // The point under the finger in canvas coordinates stays the same before and after scaling
         let canvasPointX = (center.x - lastOffset.width) / lastScale
         let canvasPointY = (center.y - lastOffset.height) / lastScale
         
-        // After scaling, the same canvas point should still be under the finger
-        let newOffsetX = center.x - canvasPointX * newScale
-        let newOffsetY = center.y - canvasPointY * newScale
-        
         scale = newScale
+        
+        var newOffsetX = center.x - canvasPointX * newScale
+        var newOffsetY = center.y - canvasPointY * newScale
+        
+        // Apply horizontal elasticity during zoom if needed
+        let canvasWidth = CanvasConstants.a4Width * newScale
+        let minX = viewportSize.width - canvasWidth
+        let maxX: CGFloat = 0
+        
+        if canvasWidth > viewportSize.width {
+            if newOffsetX > maxX {
+                let diff = newOffsetX - maxX
+                newOffsetX = maxX + diff * elasticResistance
+            } else if newOffsetX < minX {
+                let diff = newOffsetX - minX
+                newOffsetX = minX + diff * elasticResistance
+            }
+        }
+        
+        // Apply vertical elasticity during zoom if needed
+        let canvasHeight = totalCanvasHeight * newScale
+        let minY = viewportSize.height - canvasHeight - verticalPadding
+        let maxY: CGFloat = verticalPadding
+        
+        if canvasHeight > (viewportSize.height - 2 * verticalPadding) {
+            if newOffsetY > maxY {
+                let diff = newOffsetY - maxY
+                newOffsetY = maxY + diff * elasticResistance
+            } else if newOffsetY < minY {
+                let diff = newOffsetY - minY
+                newOffsetY = minY + diff * elasticResistance
+            }
+        }
+        
         offset = CGSize(width: newOffsetX, height: newOffsetY)
+        updateCurrentPageIndex()
     }
     
     func endMagnification(value: CGFloat, center: CGPoint) {
         handleMagnification(value: value, center: center)
-        lastScale = scale
-        lastOffset = offset
+        snapToBoundaries(animated: true)
         saveCanvas()
+    }
+    
+    func snapToBoundaries(animated: Bool) {
+        let canvasWidth = CanvasConstants.a4Width * scale
+        let canvasHeight = totalCanvasHeight * scale
+        
+        var finalX = offset.width
+        var finalY = offset.height
+        
+        // Horizontal Snap-back / Centering
+        let minX = viewportSize.width - canvasWidth
+        let maxX: CGFloat = 0
+        
+        if canvasWidth > viewportSize.width {
+            if finalX > maxX {
+                finalX = maxX
+            } else if finalX < minX {
+                finalX = minX
+            }
+        } else {
+            finalX = (viewportSize.width - canvasWidth) / 2
+        }
+        
+        // Vertical Snap-back / Centering
+        let minY = viewportSize.height - canvasHeight - verticalPadding
+        let maxY: CGFloat = verticalPadding
+        
+        if canvasHeight > (viewportSize.height - 2 * verticalPadding) {
+            if finalY > maxY {
+                finalY = maxY
+            } else if finalY < minY {
+                finalY = minY
+            }
+        } else {
+            finalY = (viewportSize.height - canvasHeight) / 2
+        }
+        
+        if animated {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                offset = CGSize(width: finalX, height: finalY)
+                lastScale = scale
+                lastOffset = offset
+            }
+        } else {
+            offset = CGSize(width: finalX, height: finalY)
+            lastScale = scale
+            lastOffset = offset
+        }
+        
+        updateCurrentPageIndex()
+    }
+    
+    private func updateCurrentPageIndex() {
+        let pageHeight = (CanvasConstants.a4Height + CanvasViewModel.pageGap) * scale
+        let scrollY = -offset.height
+        let index = Int((scrollY + (pageHeight / 3)) / pageHeight) 
+        let clampedIndex = min(max(0, index), pages.count - 1)
+        
+        if currentPageIndex != clampedIndex {
+            currentPageIndex = clampedIndex
+        }
     }
     
     func zoomIn() {
         scale = min(scale + 0.1, 5.0)
+        snapToBoundaries(animated: true)
     }
     
     func zoomOut() {
         scale = max(scale - 0.1, 0.1)
+        snapToBoundaries(animated: true)
     }
     
     func centerCanvas(in screenSize: CGSize) {
         // Initial centering logic: center the A4 paper in the available screen space
         // We only do this if we haven't centered yet or if the canvas is empty
         guard screenSize.width > 0 && screenSize.height > 0 else { return }
+        viewportSize = screenSize
         
         let initialScale: CGFloat = min(
             (screenSize.width - 40) / CanvasConstants.a4Width,
@@ -132,11 +308,14 @@ class CanvasViewModel: ObservableObject {
         lastScale = initialScale
         
         let offsetX = (screenSize.width - CanvasConstants.a4Width * scale) / 2
-        let offsetY = (screenSize.height - CanvasConstants.a4Height * scale) / 2
+        // For vertical, if it fits, center it. If too long, top align it with padding.
+        let totalHeight = totalCanvasHeight * scale
+        let offsetY = totalHeight > (screenSize.height - 2 * verticalPadding) ? verticalPadding : (screenSize.height - totalHeight) / 2
         
         offset = CGSize(width: offsetX, height: offsetY)
         lastOffset = offset
         hasCenteredInitial = true
+        updateCurrentPageIndex()
     }
     
     func clearCanvas() {
@@ -182,7 +361,9 @@ class CanvasViewModel: ObservableObject {
             return box
         }
         
-        // Otherwise, calculate bounds of selected elements
+        // Otherwise, calculate bounds of selected elements using their global offsets
+        let elementsToSearch = allElementsWithOffsets
+        
         var minX: CGFloat = .infinity
         var minY: CGFloat = .infinity
         var maxX: CGFloat = -.infinity
@@ -191,7 +372,7 @@ class CanvasViewModel: ObservableObject {
         var hasElements = false
         
         for id in selectedElementIds {
-            if let element = elements.first(where: { $0.id == id }) {
+            if let element = elementsToSearch.first(where: { $0.id == id }) {
                 hasElements = true
                 minX = min(minX, element.x)
                 minY = min(minY, element.y)
@@ -208,7 +389,9 @@ class CanvasViewModel: ObservableObject {
     private func updateSelectedElements() {
         guard let box = selectionBox else { return }
         
-        let selected = elements.filter { element in
+        let elementsToSearch = allElementsWithOffsets
+        
+        let selected = elementsToSearch.filter { element in
             let elementRect = CGRect(x: element.x, y: element.y, width: element.width, height: element.height)
             
             // 1. Fast Bounding Box Check
@@ -315,8 +498,9 @@ class CanvasViewModel: ObservableObject {
     
     func isPointInSelectedElement(_ point: CGPoint) -> Bool {
         let canvasPoint = toCanvasCoordinates(point)
+        let elementsToSearch = allElementsWithOffsets
         for id in selectedElementIds {
-            if let element = elements.first(where: { $0.id == id }) {
+            if let element = elementsToSearch.first(where: { $0.id == id }) {
                 let rect = CGRect(x: element.x, y: element.y, width: element.width, height: element.height)
                 if rect.contains(canvasPoint) {
                     return true
@@ -328,8 +512,9 @@ class CanvasViewModel: ObservableObject {
     
     func findElement(at point: CGPoint) -> UUID? {
         let canvasPoint = toCanvasCoordinates(point)
+        let elementsToSearch = allElementsWithOffsets
         // Search in reverse order (topmost first)
-        for element in elements.reversed() {
+        for element in elementsToSearch.reversed() {
             let rect = CGRect(x: element.x, y: element.y, width: element.width, height: element.height)
             if rect.contains(canvasPoint) {
                 return element.id
@@ -345,8 +530,9 @@ class CanvasViewModel: ObservableObject {
     func startMovingSelection() {
         saveState()
         initialElementPositions.removeAll()
+        let elementsToSearch = allElementsWithOffsets
         for id in selectedElementIds {
-            if let element = elements.first(where: { $0.id == id }) {
+            if let element = elementsToSearch.first(where: { $0.id == id }) {
                 initialElementPositions[id] = CGPoint(x: element.x, y: element.y)
             }
         }
@@ -357,13 +543,17 @@ class CanvasViewModel: ObservableObject {
         let deltaY = translation.height / scale
         
         for (id, initialPos) in initialElementPositions {
-            if let index = elements.firstIndex(where: { $0.id == id }) {
-                // Allow elements to move freely without boundary clamping
-                let newX = initialPos.x + deltaX
-                let newY = initialPos.y + deltaY
-                
-                elements[index].x = newX
-                elements[index].y = newY
+            // We need to find which page this element belongs to and update it there
+            for pageIndex in 0..<pages.count {
+                if let elementIndex = pages[pageIndex].elements.firstIndex(where: { $0.id == id }) {
+                    let yOffset = CGFloat(pageIndex) * (CanvasConstants.a4Height + CanvasViewModel.pageGap)
+                    let newX = initialPos.x + deltaX
+                    let newY = initialPos.y + deltaY - yOffset // Convert back to local
+                    
+                    pages[pageIndex].elements[elementIndex].x = newX
+                    pages[pageIndex].elements[elementIndex].y = newY
+                    break
+                }
             }
         }
     }
@@ -377,13 +567,25 @@ class CanvasViewModel: ObservableObject {
     
     func startStroke(at point: CGPoint) {
         let canvasPoint = toCanvasCoordinates(point)
-        // Clamp to A4
-        let clampedPoint = CGPoint(
-            x: max(0, min(canvasPoint.x, CanvasConstants.a4Width)),
-            y: max(0, min(canvasPoint.y, CanvasConstants.a4Height))
+        
+        // Find which page this point belongs to
+        let pageHeight = CanvasConstants.a4Height + CanvasViewModel.pageGap
+        let pageIndex = Int(max(0, canvasPoint.y) / pageHeight)
+        
+        // Ensure page index is valid (clamped to existing pages or allows temporary drawing on "new" space?)
+        // For now, let's clamp to existing pages.
+        let clampedPageIndex = min(max(0, pageIndex), pages.count - 1)
+        
+        let yOffset = CGFloat(clampedPageIndex) * pageHeight
+        let localPoint = CGPoint(x: canvasPoint.x, y: canvasPoint.y - yOffset)
+        
+        // Clamp local point to A4 boundaries
+        let clampedLocalPoint = CGPoint(
+            x: max(0, min(localPoint.x, CanvasConstants.a4Width)),
+            y: max(0, min(localPoint.y, CanvasConstants.a4Height))
         )
         
-        let strokeData = StrokeData(points: [StrokeData.Point(x: clampedPoint.x, y: clampedPoint.y)], color: currentStrokeColor, width: currentStrokeWidth, brushType: currentBrushType)
+        let strokeData = StrokeData(points: [StrokeData.Point(x: clampedLocalPoint.x, y: clampedLocalPoint.y)], color: currentStrokeColor, width: currentStrokeWidth, brushType: currentBrushType)
         
         currentStroke = CanvasElementData(
             id: UUID(),
@@ -393,6 +595,9 @@ class CanvasViewModel: ObservableObject {
             zIndex: 1,
             data: .stroke(strokeData)
         )
+        
+        // Remember which page we started drawing on
+        currentPageIndex = clampedPageIndex
     }
     
     func continueStroke(at point: CGPoint) {
@@ -402,11 +607,18 @@ class CanvasViewModel: ObservableObject {
         }
         
         let canvasPoint = toCanvasCoordinates(point)
-        // Clamp to A4
-        let clampedX = max(0, min(canvasPoint.x, CanvasConstants.a4Width))
-        let clampedY = max(0, min(canvasPoint.y, CanvasConstants.a4Height))
+        let pageHeight = CanvasConstants.a4Height + CanvasViewModel.pageGap
+        let yOffset = CGFloat(currentPageIndex) * pageHeight
         
-        data.points.append(StrokeData.Point(x: clampedX, y: clampedY))
+        // Map global canvas point to the page we started on
+        let localX = canvasPoint.x
+        let localY = canvasPoint.y - yOffset
+        
+        // Clamp to A4 boundaries of that page
+        let clampedLocalX = max(0, min(localX, CanvasConstants.a4Width))
+        let clampedLocalY = max(0, min(localY, CanvasConstants.a4Height))
+        
+        data.points.append(StrokeData.Point(x: clampedLocalX, y: clampedLocalY))
         stroke.data = .stroke(data)
         currentStroke = stroke
     }
@@ -437,22 +649,26 @@ class CanvasViewModel: ObservableObject {
         // Persist modified images
         if !modifiedImageIds.isEmpty {
             for id in modifiedImageIds {
-               if let index = elements.firstIndex(where: { $0.id == id }),
-                  let cachedImage = imageCache[id],
-                  let pngData = cachedImage.pngData() {
-                   
-                   let base64 = pngData.base64EncodedString()
-                   var element = elements[index]
-                   
-                   if case .bitmapInk(var data) = element.data {
-                       data.src = base64
-                       element.data = .bitmapInk(data)
-                   } else if case .image(var data) = element.data {
-                       data.src = base64
-                       element.data = .image(data)
+               // Find which page this element belongs to
+               for pageIndex in 0..<pages.count {
+                   if let index = pages[pageIndex].elements.firstIndex(where: { $0.id == id }),
+                      let cachedImage = imageCache[id],
+                      let pngData = cachedImage.pngData() {
+                       
+                       let base64 = pngData.base64EncodedString()
+                       var element = pages[pageIndex].elements[index]
+                       
+                       if case .bitmapInk(var data) = element.data {
+                           data.src = base64
+                           element.data = .bitmapInk(data)
+                       } else if case .image(var data) = element.data {
+                           data.src = base64
+                           element.data = .image(data)
+                       }
+                       
+                       pages[pageIndex].elements[index] = element
+                       break
                    }
-                   
-                   elements[index] = element
                }
             }
             modifiedImageIds.removeAll()
@@ -463,84 +679,102 @@ class CanvasViewModel: ObservableObject {
     
     /// Erase stroke segments or whole elements at a specific point
     private func eraseStrokesAtPoint(_ point: CGPoint) {
-        var elementsToRemove: [UUID] = []
-        var elementsToAdd: [CanvasElementData] = []
+        var elementsToRemoveGlobal: [UUID] = []
+        var elementsToAddGlobal: [(index: Int, elements: [CanvasElementData])] = []
         
-        for element in elements {
-            switch element.data {
-            case .stroke(let strokeData):
-                // Check if any point of this stroke is within eraser radius
-                let hasIntersection = strokeData.points.contains { strokePoint in
-                    let absolutePoint = CGPoint(
-                        x: element.x + strokePoint.x,
-                        y: element.y + strokePoint.y
-                    )
-                    return distance(from: absolutePoint, to: point) <= currentEraserWidth
-                }
+        let pageHeight = CanvasConstants.a4Height + CanvasViewModel.pageGap
+        
+        for (pageIndex, var page) in pages.enumerated() {
+            var elementsToRemove: [UUID] = []
+            var elementsToAdd: [CanvasElementData] = []
+            let yOffset = CGFloat(pageIndex) * pageHeight
+            
+            for element in page.elements {
+                // Adjust element for global checks
+                var globalElement = element
+                globalElement.y += yOffset
                 
-                guard hasIntersection else { continue }
-                
-                // Split the stroke, removing erased segments
-                let fragments = splitStroke(element: element, strokeData: strokeData, eraserPoint: point)
-                
-                if fragments.isEmpty {
-                    // Entire stroke was erased
-                    elementsToRemove.append(element.id)
-                } else if fragments.count == 1 && fragments[0].id == element.id {
-                    // No actual split needed, stroke is still the same
+                switch element.data {
+                case .stroke(let strokeData):
+                    // Check if any point of this stroke is within eraser radius
+                    let hasIntersection = strokeData.points.contains { strokePoint in
+                        let absolutePoint = CGPoint(
+                            x: globalElement.x + strokePoint.x,
+                            y: globalElement.y + strokePoint.y
+                        )
+                        return distance(from: absolutePoint, to: point) <= currentEraserWidth
+                    }
+                    
+                    guard hasIntersection else { continue }
+                    
+                    // Split the stroke, removing erased segments
+                    let fragments = splitStroke(element: globalElement, strokeData: strokeData, eraserPoint: point)
+                    
+                    if fragments.isEmpty {
+                        // Entire stroke was erased
+                        elementsToRemove.append(element.id)
+                    } else if fragments.count == 1 && fragments[0].id == element.id {
+                        // No actual split needed, stroke is still the same
+                        continue
+                    } else {
+                        // Replace original with fragments
+                        elementsToRemove.append(element.id)
+                        // Fragments are global, need to convert back to local
+                        let localFragments = fragments.map { fragment -> CanvasElementData in
+                            var localFrag = fragment
+                            localFrag.y -= yOffset
+                            return localFrag
+                        }
+                        elementsToAdd.append(contentsOf: localFragments)
+                    }
+                    
+                case .bitmapInk, .image:
+                    // Partial Eraser for images/stamps: Mask pixels
+                    let rect = CGRect(x: globalElement.x, y: globalElement.y, width: globalElement.width, height: globalElement.height)
+                    
+                    // Fast check: Eraser must intersect bounding box
+                    let expandedRect = rect.insetBy(dx: -currentEraserWidth, dy: -currentEraserWidth)
+                    guard expandedRect.contains(point) else { continue }
+                    
+                    // Get current image from cache
+                    guard let image = imageCache[element.id] else { continue }
+                    
+                    // Perform drawing
+                    let renderer = UIGraphicsImageRenderer(size: rect.size)
+                    let newImage = renderer.image { context in
+                        image.draw(in: CGRect(origin: .zero, size: rect.size))
+                        
+                        let cgContext = context.cgContext
+                        cgContext.setBlendMode(.clear)
+                        cgContext.setFillColor(UIColor.clear.cgColor)
+                        
+                        let relativePoint = CGPoint(x: point.x - rect.minX, y: point.y - rect.minY)
+                        let eraserRect = CGRect(
+                            x: relativePoint.x - currentEraserWidth,
+                            y: relativePoint.y - currentEraserWidth,
+                            width: currentEraserWidth * 2,
+                            height: currentEraserWidth * 2
+                        )
+                        
+                        cgContext.fillEllipse(in: eraserRect)
+                    }
+                    
+                    // Update Cache & State
+                    imageCache[element.id] = newImage
+                    modifiedImageIds.insert(element.id)
+                    objectWillChange.send() // Force UI update
+                    
+                default:
                     continue
-                } else {
-                    // Replace original with fragments
-                    elementsToRemove.append(element.id)
-                    elementsToAdd.append(contentsOf: fragments)
                 }
-                
-            case .bitmapInk, .image:
-                // Partial Eraser for images/stamps: Mask pixels
-                let rect = CGRect(x: element.x, y: element.y, width: element.width, height: element.height)
-                
-                // Fast check: Eraser must intersect bounding box
-                let expandedRect = rect.insetBy(dx: -currentEraserWidth, dy: -currentEraserWidth)
-                guard expandedRect.contains(point) else { continue }
-                
-                // Get current image from cache
-                guard let image = imageCache[element.id] else { continue }
-                
-                // Perform drawing on Main Thread (usually safe for small updates, ensures sync)
-                let renderer = UIGraphicsImageRenderer(size: rect.size)
-                let newImage = renderer.image { context in
-                    // 1. Draw original image
-                    image.draw(in: CGRect(origin: .zero, size: rect.size))
-                    
-                    // 2. Clear the eraser circle
-                    let cgContext = context.cgContext
-                    cgContext.setBlendMode(.clear)
-                    cgContext.setFillColor(UIColor.clear.cgColor)
-                    
-                    let relativePoint = CGPoint(x: point.x - rect.minX, y: point.y - rect.minY)
-                    let eraserRect = CGRect(
-                        x: relativePoint.x - currentEraserWidth,
-                        y: relativePoint.y - currentEraserWidth,
-                        width: currentEraserWidth * 2,
-                        height: currentEraserWidth * 2
-                    )
-                    
-                    cgContext.fillEllipse(in: eraserRect)
-                }
-                
-                // Update Cache & State
-                imageCache[element.id] = newImage
-                modifiedImageIds.insert(element.id)
-                objectWillChange.send() // Force UI update
-                
-            default:
-                continue
+            }
+            
+            // Apply changes to this page
+            if !elementsToRemove.isEmpty || !elementsToAdd.isEmpty {
+                pages[pageIndex].elements.removeAll { elementsToRemove.contains($0.id) }
+                pages[pageIndex].elements.append(contentsOf: elementsToAdd)
             }
         }
-        
-        // Apply changes
-        elements.removeAll { elementsToRemove.contains($0.id) }
-        elements.append(contentsOf: elementsToAdd)
     }
     
     /// Split a stroke into fragments, removing points within eraser radius
@@ -676,7 +910,7 @@ class CanvasViewModel: ObservableObject {
     // MARK: - Undo/Redo
     
     func saveState() {
-        undoStack.append(elements)
+        undoStack.append(pages)
         redoStack.removeAll()
         
         // Limit stack size
@@ -687,15 +921,15 @@ class CanvasViewModel: ObservableObject {
     
     func undo() {
         guard let previousState = undoStack.popLast() else { return }
-        redoStack.append(elements)
-        elements = previousState
+        redoStack.append(pages)
+        pages = previousState
         saveCanvas()
     }
     
     func redo() {
         guard let nextState = redoStack.popLast() else { return }
-        undoStack.append(elements)
-        elements = nextState
+        undoStack.append(pages)
+        pages = nextState
         saveCanvas()
     }
     
@@ -858,8 +1092,17 @@ class CanvasViewModel: ObservableObject {
     
     func addElement(_ element: CanvasElementData) {
         saveState()
-        // Allow elements to be placed without boundary clamping
+        
         var elementToAdd = element
+        
+        // Determine which page to add the element to based on its y coordinate
+        let pageHeight = CanvasConstants.a4Height + CanvasViewModel.pageGap
+        let pageIndex = Int(max(0, elementToAdd.y) / pageHeight)
+        let clampedPageIndex = min(max(0, pageIndex), pages.count - 1)
+        
+        // Convert global coordinate to local coordinate for that page
+        let yOffset = CGFloat(clampedPageIndex) * pageHeight
+        elementToAdd.y -= yOffset
         
         // Dynamic caching for new images
         if case .image(let data) = elementToAdd.data {
@@ -872,7 +1115,7 @@ class CanvasViewModel: ObservableObject {
             }
         }
         
-        elements.append(elementToAdd)
+        pages[clampedPageIndex].elements.append(elementToAdd)
         saveCanvas()
     }
     

@@ -18,16 +18,19 @@ struct BlackboardView: View {
     
     var body: some View {
         GeometryReader { geometry in
-            ZStack(alignment: .topLeading) {
+            ZStack {
                 Color(hex: CanvasConstants.workspaceColor) // Workspace background
                     .ignoresSafeArea()
                 
-                gestureReceiver
+                // Canvas Layer
+                ZStack(alignment: .topLeading) {
+                    gestureReceiver
+                    canvasContent(geometry: geometry)
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+                .clipped()
                 
-                gestureReceiver
-                
-                canvasContent(geometry: geometry)
-                
+                // Overlay Layer
                 toolbarOverlay
             }
             .onAppear {
@@ -139,66 +142,71 @@ struct BlackboardView: View {
     
     func canvasContent(geometry: GeometryProxy) -> some View {
         ZStack(alignment: .topLeading) {
-            // A4 Paper Background
-            Rectangle()
-                .fill(isPreparingInkjet ? Color.white : Color(hex: CanvasConstants.paperColor))
-                .frame(width: CanvasConstants.a4Width, height: CanvasConstants.a4Height)
-                .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
-                .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
-                .allowsHitTesting(false)
-            
-            ForEach(viewModel.elements) { element in
-                CanvasElementView(
-                    element: element,
-                    viewModel: viewModel,
-                    isSelected: viewModel.selectedElementIds.contains(element.id),
-                    onDelete: {
-                        viewModel.removeElement(id: element.id)
-                    },
-                    isEditing: viewModel.editingElementId == element.id,
-                    onTextChange: { newText in
-                        viewModel.updateElementText(id: element.id, text: newText)
-                        viewModel.editingElementId = nil
-                    }
-                )
-                .equatable()
-                .onTapGesture(count: 2) {
-                    if case .text = element.data {
-                        viewModel.selectElement(id: element.id)
-                        viewModel.editingElementId = element.id
-                    }
-                }
-                .onTapGesture {
-                    if selectedTool == .select {
-                        viewModel.selectElement(id: element.id)
-                    }
-                }
-                .gesture(
-                    DragGesture()
-                        .onChanged { value in
-                            if selectedTool == .select {
-                                // Only move if the element is already selected
-                                if viewModel.selectedElementIds.contains(element.id) {
-                                    if !isMovingSelection {
-                                        isMovingSelection = true
-                                        viewModel.startMovingSelection()
+            VStack(spacing: CanvasViewModel.pageGap) {
+                ForEach(0..<viewModel.pageCount, id: \.self) { pageIndex in
+                    ZStack(alignment: .topLeading) {
+                        // A4 Paper Background
+                        Rectangle()
+                            .fill(isPreparingInkjet ? Color.white : Color(hex: CanvasConstants.paperColor))
+                            .frame(width: CanvasConstants.a4Width, height: CanvasConstants.a4Height)
+                            .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
+                            .allowsHitTesting(false)
+                        
+                        // Elements for this specific page
+                        let pageElements = viewModel.pages[pageIndex].elements
+                        ForEach(pageElements) { element in
+                            CanvasElementView(
+                                element: element,
+                                viewModel: viewModel,
+                                isSelected: viewModel.selectedElementIds.contains(element.id),
+                                onDelete: {
+                                    viewModel.removeElement(id: element.id)
+                                },
+                                isEditing: viewModel.editingElementId == element.id,
+                                onTextChange: { newText in
+                                    viewModel.updateElementText(id: element.id, text: newText)
+                                    viewModel.editingElementId = nil
+                                }
+                            )
+                            .equatable()
+                            .onTapGesture(count: 2) {
+                                if case .text = element.data {
+                                    viewModel.selectElement(id: element.id)
+                                    viewModel.editingElementId = element.id
+                                }
+                            }
+                            .onTapGesture {
+                                if selectedTool == .select {
+                                    viewModel.selectElement(id: element.id)
+                                }
+                            }
+                            .gesture(
+                                DragGesture()
+                                    .onChanged { value in
+                                        if selectedTool == .select {
+                                            if viewModel.selectedElementIds.contains(element.id) {
+                                                if !isMovingSelection {
+                                                    isMovingSelection = true
+                                                    viewModel.startMovingSelection()
+                                                }
+                                                viewModel.moveSelection(translation: value.translation)
+                                            }
+                                        }
                                     }
-                                    
-                                    viewModel.moveSelection(translation: value.translation)
-                                }
-                            }
+                                    .onEnded { _ in
+                                        if selectedTool == .select {
+                                            if isMovingSelection {
+                                                viewModel.endMovingSelection()
+                                                isMovingSelection = false
+                                            }
+                                        }
+                                    }
+                            )
+                            .allowsHitTesting(selectedTool == .select || selectedTool == .text)
                         }
-                        .onEnded { _ in
-                            if selectedTool == .select {
-                                // Only end moving if we were actually moving
-                                if isMovingSelection {
-                                    viewModel.endMovingSelection()
-                                    isMovingSelection = false
-                                }
-                            }
-                        }
-                )
-                .allowsHitTesting(selectedTool == .select || selectedTool == .text)
+                    }
+                    .frame(width: CanvasConstants.a4Width, height: CanvasConstants.a4Height)
+                }
             }
             
             // Render Current Stroke being drawn
@@ -563,7 +571,6 @@ struct BlackboardView: View {
                 }
             }
         }
-        .frame(width: CanvasConstants.a4Width, height: CanvasConstants.a4Height)
         // Content can extend beyond canvas boundaries for visibility when dragging
         .scaleEffect(viewModel.scale, anchor: .topLeading)
         .offset(viewModel.offset)
@@ -733,14 +740,6 @@ struct BlackboardView: View {
                 Spacer()
                 HStack {
                     VStack(spacing: 8) {
-                        Button(action: { viewModel.previousPage() }) {
-                            Image(systemName: "chevron.up")
-                                .padding(10)
-                                .background(Color(UIColor.secondarySystemBackground))
-                                .clipShape(Circle())
-                        }
-                        .disabled(viewModel.isFirstPage)
-                        
                         Text("\(viewModel.currentPageIndex + 1)/\(viewModel.pageCount)")
                             .font(.caption)
                             .fontWeight(.medium)
@@ -749,18 +748,6 @@ struct BlackboardView: View {
                             .padding(.vertical, 4)
                             .background(Color(UIColor.secondarySystemBackground))
                             .cornerRadius(4)
-                        
-                        Button(action: { viewModel.nextPage() }) {
-                            Image(systemName: "chevron.down")
-                                .padding(10)
-                                .background(Color(UIColor.secondarySystemBackground))
-                                .clipShape(Circle())
-                        }
-                        .disabled(viewModel.isLastPage)
-                        
-                        Divider()
-                            .frame(width: 30)
-                            .padding(.vertical, 4)
                         
                         Button(action: { viewModel.addPage() }) {
                             Image(systemName: "plus.rectangle.on.rectangle")
