@@ -66,11 +66,14 @@ struct BlackboardView: View {
         }
         .fullScreenCover(item: $selectedPDFDocument) { document in
             PDFSelectionView(pdfDocument: document) { rect, image in
+                let pageHeight = CanvasConstants.a4Height + CanvasViewModel.pageGap
+                let globalY = CGFloat(viewModel.currentPageIndex) * pageHeight + 100
+                
                 viewModel.addElement(CanvasElementData(
                     id: UUID(),
                     type: .image,
                     x: 100,
-                    y: 100,
+                    y: globalY,
                     width: 200,
                     height: 200 * (image.size.height / image.size.width),
                     zIndex: viewModel.elements.count,
@@ -81,11 +84,14 @@ struct BlackboardView: View {
         }
         .sheet(isPresented: $isShowingImagePicker) {
             ImagePicker { image in
+                let pageHeight = CanvasConstants.a4Height + CanvasViewModel.pageGap
+                let globalY = CGFloat(viewModel.currentPageIndex) * pageHeight + 100
+                
                 viewModel.addElement(CanvasElementData(
                     id: UUID(),
                     type: .image,
                     x: 100,
-                    y: 100,
+                    y: globalY,
                     width: 200,
                     height: 200 * (image.size.height / image.size.width),
                     zIndex: viewModel.elements.count,
@@ -152,13 +158,13 @@ struct BlackboardView: View {
                             .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
                             .allowsHitTesting(false)
                         
-                        // Elements for this specific page
+                        // Elements for this specific page (Unselected only)
                         let pageElements = viewModel.pages[pageIndex].elements
-                        ForEach(pageElements) { element in
+                        ForEach(pageElements.filter { !viewModel.selectedElementIds.contains($0.id) }) { element in
                             CanvasElementView(
                                 element: element,
                                 viewModel: viewModel,
-                                isSelected: viewModel.selectedElementIds.contains(element.id),
+                                isSelected: false,
                                 onDelete: {
                                     viewModel.removeElement(id: element.id)
                                 },
@@ -204,29 +210,80 @@ struct BlackboardView: View {
                             )
                             .allowsHitTesting(selectedTool == .select || selectedTool == .text)
                         }
+
+                        // Render Current Stroke being drawn on this specific page
+                        if pageIndex == viewModel.currentPageIndex, let currentStroke = viewModel.currentStroke, case .stroke(let data) = currentStroke.data {
+                            Path { path in
+                                guard let first = data.points.first else { return }
+                                path.move(to: CGPoint(x: first.x, y: first.y))
+                                for point in data.points.dropFirst() {
+                                    path.addLine(to: CGPoint(x: point.x, y: point.y))
+                                }
+                            }
+                            .stroke(
+                                Color(hex: data.color).opacity(data.brushType.opacity),
+                                style: StrokeStyle(
+                                    lineWidth: data.width * data.brushType.widthMultiplier,
+                                    lineCap: data.brushType.lineCap,
+                                    lineJoin: data.brushType.lineJoin
+                                )
+                            )
+                        }
                     }
                     .frame(width: CanvasConstants.a4Width, height: CanvasConstants.a4Height)
                 }
             }
             
-            // Render Current Stroke being drawn
-            if let currentStroke = viewModel.currentStroke, case .stroke(let data) = currentStroke.data {
-                Path { path in
-                    guard let first = data.points.first else { return }
-                    path.move(to: CGPoint(x: first.x, y: first.y))
-                    for point in data.points.dropFirst() {
-                        path.addLine(to: CGPoint(x: point.x, y: point.y))
+            // Top Selection Layer (Selected elements only, rendered over all pages)
+            ForEach(viewModel.allElementsWithOffsets.filter { viewModel.selectedElementIds.contains($0.id) }) { element in
+                CanvasElementView(
+                    element: element,
+                    viewModel: viewModel,
+                    isSelected: true,
+                    onDelete: {
+                        viewModel.removeElement(id: element.id)
+                    },
+                    isEditing: viewModel.editingElementId == element.id,
+                    onTextChange: { newText in
+                        viewModel.updateElementText(id: element.id, text: newText)
+                        viewModel.editingElementId = nil
+                    }
+                )
+                .equatable()
+                .onTapGesture(count: 2) {
+                    if case .text = element.data {
+                        viewModel.selectElement(id: element.id)
+                        viewModel.editingElementId = element.id
                     }
                 }
-                .stroke(
-                    Color(hex: data.color).opacity(data.brushType.opacity),
-                    style: StrokeStyle(
-                        lineWidth: data.width * data.brushType.widthMultiplier,
-                        lineCap: data.brushType.lineCap,
-                        lineJoin: data.brushType.lineJoin
-                    )
+                .onTapGesture {
+                    if selectedTool == .select {
+                        viewModel.selectElement(id: element.id)
+                    }
+                }
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            if selectedTool == .select {
+                                if !isMovingSelection {
+                                    isMovingSelection = true
+                                    viewModel.startMovingSelection()
+                                }
+                                viewModel.moveSelection(translation: value.translation)
+                            }
+                        }
+                        .onEnded { _ in
+                            if selectedTool == .select {
+                                if isMovingSelection {
+                                    viewModel.endMovingSelection()
+                                    isMovingSelection = false
+                                }
+                            }
+                        }
                 )
+                .allowsHitTesting(selectedTool == .select || selectedTool == .text)
             }
+            
             
             // Render Eraser Circle Preview
             if let eraserPos = viewModel.currentEraserPosition {
@@ -417,7 +474,7 @@ struct BlackboardView: View {
                             if viewModel.selectedElementIds.count > 1 {
                                 Button(action: {
                                     // Capture Snapshot
-                                    let selectedElements = viewModel.elements.filter { viewModel.selectedElementIds.contains($0.id) }
+                                    let selectedElements = viewModel.allElementsWithOffsets.filter { viewModel.selectedElementIds.contains($0.id) }
                                     let bounds = box
                                     
                                     // Create temporary elements relative to bounds
@@ -473,96 +530,98 @@ struct BlackboardView: View {
                                 }
                             }
                             
-                            // Inkjet Button
-                            Button(action: {
-                                // 1. Prepare UI for Wysiwyg Capture
-                                isPreparingInkjet = true
-                                
-                                // 2. Wait for UI update (background flash & hide selection)
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            // Inkjet Button (Only if single item selected)
+                            if viewModel.selectedElementIds.count == 1 {
+                                Button(action: {
+                                    // 1. Prepare UI for Wysiwyg Capture
+                                    isPreparingInkjet = true
                                     
-                                    // 3. Capture Screen
-                                    // Locate the window (assuming single window app)
-                                    guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                                          let window = windowScene.windows.first(where: { $0.isKeyWindow }) else {
-                                        isPreparingInkjet = false
-                                        return
-                                    }
-                                    
-                                    // Convert Canvas Coordinates (box) to Screen Coordinates
-                                    // Canvas Point -> * Scale + Offset -> View Point -> + Window Origin -> Screen Point
-                                    let scale = viewModel.scale
-                                    let offset = viewModel.offset
-                                    
-                                    // Find where the canvas content starts on screen relative to window
-                                    // We approximate this by looking at geometry.frame(in: .global).minX/Y
-                                    // But GeometryReader 'geometry' is available in body. We can use it here if we capture it in closure?
-                                    // Simplification: Assume pure transform based capture.
-                                    
-                                    // Calculate frame of the content within the Scroll/Zoom view
-                                    let contentRect = CGRect(
-                                        x: box.minX * scale + offset.width,
-                                        y: box.minY * scale + offset.height,
-                                        width: box.width * scale,
-                                        height: box.height * scale
-                                    )
-                                    
-                                    // Get the global position of the BlackboardView (the geometry reader container)
-                                    let globalFrame = geometry.frame(in: .global)
-                                    
-                                    // Final Screen Rect = View Origin + Content Rect
-                                    let screenRect = CGRect(
-                                        x: globalFrame.minX + contentRect.minX,
-                                        y: globalFrame.minY + contentRect.minY,
-                                        width: contentRect.width,
-                                        height: contentRect.height
-                                    )
-                                    
-                                    // scale for retina
-                                    let renderScale = UIScreen.main.scale
-                                    
-                                    // Draw Hierarchy
-                                    let renderer = UIGraphicsImageRenderer(bounds: window.bounds)
-                                    let fullScreenImage = renderer.image { ctx in
-                                        window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
-                                    }
-                                    
-                                    // Crop Image
-                                    let cropRect = CGRect(
-                                        x: screenRect.origin.x * renderScale,
-                                        y: screenRect.origin.y * renderScale,
-                                        width: screenRect.width * renderScale,
-                                        height: screenRect.height * renderScale
-                                    )
-                                    
-                                    if let cgImage = fullScreenImage.cgImage?.cropping(to: cropRect) {
-                                        let croppedImage = UIImage(cgImage: cgImage)
+                                    // 2. Wait for UI update (background flash & hide selection)
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                                         
-                                        // Process Inkjet immediately
-                                        viewModel.performInkjetPrinting(image: croppedImage, bounds: box)
+                                        // 3. Capture Screen
+                                        // Locate the window (assuming single window app)
+                                        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                                              let window = windowScene.windows.first(where: { $0.isKeyWindow }) else {
+                                            isPreparingInkjet = false
+                                            return
+                                        }
+                                        
+                                        // Convert Canvas Coordinates (box) to Screen Coordinates
+                                        // Canvas Point -> * Scale + Offset -> View Point -> + Window Origin -> Screen Point
+                                        let scale = viewModel.scale
+                                        let offset = viewModel.offset
+                                        
+                                        // Find where the canvas content starts on screen relative to window
+                                        // We approximate this by looking at geometry.frame(in: .global).minX/Y
+                                        // But GeometryReader 'geometry' is available in body. We can use it here if we capture it in closure?
+                                        // Simplification: Assume pure transform based capture.
+                                        
+                                        // Calculate frame of the content within the Scroll/Zoom view
+                                        let contentRect = CGRect(
+                                            x: box.minX * scale + offset.width,
+                                            y: box.minY * scale + offset.height,
+                                            width: box.width * scale,
+                                            height: box.height * scale
+                                        )
+                                        
+                                        // Get the global position of the BlackboardView (the geometry reader container)
+                                        let globalFrame = geometry.frame(in: .global)
+                                        
+                                        // Final Screen Rect = View Origin + Content Rect
+                                        let screenRect = CGRect(
+                                            x: globalFrame.minX + contentRect.minX,
+                                            y: globalFrame.minY + contentRect.minY,
+                                            width: contentRect.width,
+                                            height: contentRect.height
+                                        )
+                                        
+                                        // scale for retina
+                                        let renderScale = UIScreen.main.scale
+                                        
+                                        // Draw Hierarchy
+                                        let renderer = UIGraphicsImageRenderer(bounds: window.bounds)
+                                        let fullScreenImage = renderer.image { ctx in
+                                            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+                                        }
+                                        
+                                        // Crop Image
+                                        let cropRect = CGRect(
+                                            x: screenRect.origin.x * renderScale,
+                                            y: screenRect.origin.y * renderScale,
+                                            width: screenRect.width * renderScale,
+                                            height: screenRect.height * renderScale
+                                        )
+                                        
+                                        if let cgImage = fullScreenImage.cgImage?.cropping(to: cropRect) {
+                                            let croppedImage = UIImage(cgImage: cgImage)
+                                            
+                                            // Process Inkjet immediately
+                                            viewModel.performInkjetPrinting(image: croppedImage, bounds: box)
+                                        }
+                                        
+                                        // 4. Restore UI
+                                        isPreparingInkjet = false
                                     }
-                                    
-                                    // 4. Restore UI
-                                    isPreparingInkjet = false
-                                }
-                            }) {
-                                HStack(spacing: 4) {
-                                    if isPreparingInkjet {
-                                        ProgressView()
-                                            .tint(.white)
-                                    } else {
-                                        Image(systemName: "printer.fill")
+                                }) {
+                                    HStack(spacing: 4) {
+                                        if isPreparingInkjet {
+                                            ProgressView()
+                                                .tint(.white)
+                                        } else {
+                                            Image(systemName: "printer.fill")
+                                        }
+                                        Text("Inkjet")
                                     }
-                                    Text("Inkjet")
+                                    .font(.caption)
+                                    .padding(6)
+                                    .background(Color.orange)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(8)
+                                    .shadow(radius: 2)
                                 }
-                                .font(.caption)
-                                .padding(6)
-                                .background(Color.orange)
-                                .foregroundColor(.white)
-                                .cornerRadius(8)
-                                .shadow(radius: 2)
+                                .disabled(isPreparingInkjet)
                             }
-                            .disabled(isPreparingInkjet)
                         }
                         .offset(y: -40)
                     }
@@ -908,7 +967,7 @@ struct BlackboardView: View {
         let center = CGPoint(x: box.maxX + 20, y: box.minY)
         
         // Capture Snapshot
-        let selectedElements = viewModel.elements.filter { viewModel.selectedElementIds.contains($0.id) }
+        let selectedElements = viewModel.allElementsWithOffsets.filter { viewModel.selectedElementIds.contains($0.id) }
         let bounds = box
         
         // Create temporary elements relative to bounds

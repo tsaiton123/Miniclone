@@ -559,8 +559,46 @@ class CanvasViewModel: ObservableObject {
     }
     
     func endMovingSelection() {
+        redistributeSelectedElements()
         initialElementPositions.removeAll()
         saveCanvas()
+    }
+    
+    /// Redistribute selected elements to the correct pages based on their global Y position
+    private func redistributeSelectedElements() {
+        let pageHeight = CanvasConstants.a4Height + CanvasViewModel.pageGap
+        
+        for id in selectedElementIds {
+            // Find current page and index
+            var currentSourcePageIndex: Int?
+            var elementToMove: CanvasElementData?
+            
+            for pageIndex in 0..<pages.count {
+                if let index = pages[pageIndex].elements.firstIndex(where: { $0.id == id }) {
+                    currentSourcePageIndex = pageIndex
+                    elementToMove = pages[pageIndex].elements[index]
+                    pages[pageIndex].elements.remove(at: index)
+                    break
+                }
+            }
+            
+            guard var element = elementToMove, let sourceIndex = currentSourcePageIndex else { continue }
+            
+            // Calculate global Y
+            let sourceYOffset = CGFloat(sourceIndex) * pageHeight
+            let globalY = element.y + sourceYOffset
+            
+            // Find target page
+            let targetPageIndex = Int(max(0, globalY) / pageHeight)
+            let clampedTargetIndex = min(max(0, targetPageIndex), pages.count - 1)
+            
+            // Normalize for target page
+            let targetYOffset = CGFloat(clampedTargetIndex) * pageHeight
+            element.y = globalY - targetYOffset
+            
+            // Add to target page
+            pages[clampedTargetIndex].elements.append(element)
+        }
     }
     
     // MARK: - Drawing
@@ -627,6 +665,12 @@ class CanvasViewModel: ObservableObject {
     func startErasing(at point: CGPoint) {
         saveState()
         let canvasPoint = toCanvasCoordinates(point)
+        
+        // Sync currentPageIndex based on where erasing starts
+        let pageHeight = CanvasConstants.a4Height + CanvasViewModel.pageGap
+        let pageIndex = Int(max(0, canvasPoint.y) / pageHeight)
+        currentPageIndex = min(max(0, pageIndex), pages.count - 1)
+        
         eraserPath = [canvasPoint]
         currentEraserPosition = canvasPoint
         // Immediately process the first point
@@ -679,109 +723,95 @@ class CanvasViewModel: ObservableObject {
     
     /// Erase stroke segments or whole elements at a specific point
     private func eraseStrokesAtPoint(_ point: CGPoint) {
-        let pageIndex = currentPageIndex
-        guard pageIndex < pages.count else { return }
-        
         let pageHeight = CanvasConstants.a4Height + CanvasViewModel.pageGap
-        var page = pages[pageIndex]
-        var elementsToRemove: [UUID] = []
-        var elementsToAdd: [CanvasElementData] = []
-        let yOffset = CGFloat(pageIndex) * pageHeight
         
-        var hasChanges = false
-        
-        for element in page.elements {
-            // Adjust element for global checks
-            let elementRect = CGRect(x: element.x, y: element.y + yOffset, width: element.width, height: element.height)
+        // Check all pages instead of just current page to be robust
+        for pageIndex in 0..<pages.count {
+            var elementsToRemove: [UUID] = []
+            var elementsToAdd: [CanvasElementData] = []
+            let yOffset = CGFloat(pageIndex) * pageHeight
             
-            // Fast check: Eraser must be near bounding box
-            let expandedRect = elementRect.insetBy(dx: -currentEraserWidth, dy: -currentEraserWidth)
-            guard expandedRect.contains(point) else { continue }
+            var hasChanges = false
             
-            switch element.data {
-            case .stroke(let strokeData):
-                // Check if any point of this stroke is within eraser radius
-                let hasIntersection = strokeData.points.contains { strokePoint in
-                    let absolutePoint = CGPoint(
-                        x: elementRect.minX + strokePoint.x,
-                        y: elementRect.minY + strokePoint.y
-                    )
-                    return distance(from: absolutePoint, to: point) <= currentEraserWidth
-                }
+            for element in pages[pageIndex].elements {
+                // Adjust element for global checks
+                let elementRect = CGRect(x: element.x, y: element.y + yOffset, width: element.width, height: element.height)
                 
-                guard hasIntersection else { continue }
+                // Fast check: Eraser must be near bounding box
+                let expandedRect = elementRect.insetBy(dx: -currentEraserWidth, dy: -currentEraserWidth)
+                guard expandedRect.contains(point) else { continue }
                 
-                // Split the stroke, removing erased segments
-                // SplitStroke takes element in global coords
-                var globalElement = element
-                globalElement.y += yOffset
-                let fragments = splitStroke(element: globalElement, strokeData: strokeData, eraserPoint: point)
-                
-                if fragments.isEmpty {
-                    // Entire stroke was erased
-                    elementsToRemove.append(element.id)
-                    hasChanges = true
-                } else if fragments.count == 1 && fragments[0].id == element.id {
-                    // No actual split needed, stroke is still the same
-                    continue
-                } else {
-                    // Replace original with fragments
-                    elementsToRemove.append(element.id)
-                    // Fragments are global, need to convert back to local
-                    let localFragments = fragments.map { fragment -> CanvasElementData in
-                        var localFrag = fragment
-                        localFrag.y -= yOffset
-                        return localFrag
+                switch element.data {
+                case .stroke(let strokeData):
+                    // Check if any point of this stroke is within eraser radius
+                    let hasIntersection = strokeData.points.contains { strokePoint in
+                        let absolutePoint = CGPoint(
+                            x: elementRect.minX + strokePoint.x,
+                            y: elementRect.minY + strokePoint.y
+                        )
+                        return distance(from: absolutePoint, to: point) <= currentEraserWidth
                     }
-                    elementsToAdd.append(contentsOf: localFragments)
+                    
+                    guard hasIntersection else { continue }
+                    
+                    // Split the stroke, removing erased segments
+                    var globalElement = element
+                    globalElement.y += yOffset
+                    let fragments = splitStroke(element: globalElement, strokeData: strokeData, eraserPoint: point)
+                    
+                    if fragments.isEmpty {
+                        elementsToRemove.append(element.id)
+                        hasChanges = true
+                    } else if fragments.count == 1 && fragments[0].id == element.id {
+                        continue
+                    } else {
+                        elementsToRemove.append(element.id)
+                        let localFragments = fragments.map { fragment -> CanvasElementData in
+                            var localFrag = fragment
+                            localFrag.y -= yOffset
+                            return localFrag
+                        }
+                        elementsToAdd.append(contentsOf: localFragments)
+                        hasChanges = true
+                    }
+                    
+                case .bitmapInk, .image:
+                    guard let image = imageCache[element.id] else { continue }
+                    
+                    let renderer = UIGraphicsImageRenderer(size: elementRect.size)
+                    let newImage = renderer.image { context in
+                        image.draw(in: CGRect(origin: .zero, size: elementRect.size))
+                        
+                        let cgContext = context.cgContext
+                        cgContext.setBlendMode(.clear)
+                        cgContext.setFillColor(UIColor.clear.cgColor)
+                        
+                        let relativePoint = CGPoint(x: point.x - elementRect.minX, y: point.y - elementRect.minY)
+                        let eraserRect = CGRect(
+                            x: relativePoint.x - currentEraserWidth,
+                            y: relativePoint.y - currentEraserWidth,
+                            width: currentEraserWidth * 2,
+                            height: currentEraserWidth * 2
+                        )
+                        
+                        cgContext.fillEllipse(in: eraserRect)
+                    }
+                    
+                    imageCache[element.id] = newImage
+                    modifiedImageIds.insert(element.id)
                     hasChanges = true
+                    
+                default:
+                    continue
                 }
-                
-            case .bitmapInk, .image:
-                // Get current image from cache
-                guard let image = imageCache[element.id] else { continue }
-                
-                // Perform drawing
-                let renderer = UIGraphicsImageRenderer(size: elementRect.size)
-                let newImage = renderer.image { context in
-                    image.draw(in: CGRect(origin: .zero, size: elementRect.size))
-                    
-                    let cgContext = context.cgContext
-                    cgContext.setBlendMode(.clear)
-                    cgContext.setFillColor(UIColor.clear.cgColor)
-                    
-                    let relativePoint = CGPoint(x: point.x - elementRect.minX, y: point.y - elementRect.minY)
-                    let eraserRect = CGRect(
-                        x: relativePoint.x - currentEraserWidth,
-                        y: relativePoint.y - currentEraserWidth,
-                        width: currentEraserWidth * 2,
-                        height: currentEraserWidth * 2
-                    )
-                    
-                    cgContext.fillEllipse(in: eraserRect)
-                }
-                
-                // Update Cache & State
-                imageCache[element.id] = newImage
-                modifiedImageIds.insert(element.id)
-                hasChanges = true
-                
-            default:
-                continue
-            }
-        }
-        
-        // Apply changes to this page
-        if hasChanges {
-            if !elementsToRemove.isEmpty || !elementsToAdd.isEmpty {
-                pages[pageIndex].elements.removeAll { elementsToRemove.contains($0.id) }
-                pages[pageIndex].elements.append(contentsOf: elementsToAdd)
             }
             
-            // Only notify UI if there were actually changes
-            // Note: image changes already requested objectWillChange implicitly if they want, 
-            // but for strokes we need to make sure the view updates.
-            // Since elements is a computed property, updating pages will trigger it if pages is @Published.
+            if hasChanges {
+                if !elementsToRemove.isEmpty || !elementsToAdd.isEmpty {
+                    pages[pageIndex].elements.removeAll { elementsToRemove.contains($0.id) }
+                    pages[pageIndex].elements.append(contentsOf: elementsToAdd)
+                }
+            }
         }
     }
     
@@ -1140,11 +1170,15 @@ class CanvasViewModel: ObservableObject {
         let width: CGFloat = 300
         let height: CGFloat = 200
         
+        // Calculate global centering if on a later page
+        let pageHeight = CanvasConstants.a4Height + CanvasViewModel.pageGap
+        let globalYOffset = CGFloat(currentPageIndex) * pageHeight
+        
         let newElement = CanvasElementData(
             id: UUID(),
             type: .graph,
-            x: (CanvasConstants.a4Width - width) / 2, // Center on page
-            y: (CanvasConstants.a4Height - height) / 2,
+            x: (CanvasConstants.a4Width - width) / 2,
+            y: globalYOffset + (CanvasConstants.a4Height - height) / 2,
             width: width,
             height: height,
             zIndex: elements.count,
@@ -1240,14 +1274,18 @@ class CanvasViewModel: ObservableObject {
     
     func removeElement(id: UUID) {
         saveState()
-        elements.removeAll(where: { $0.id == id })
+        for i in 0..<pages.count {
+            pages[i].elements.removeAll(where: { $0.id == id })
+        }
         saveCanvas()
     }
     
     func deleteSelection() {
         guard !selectedElementIds.isEmpty else { return }
         saveState()
-        elements.removeAll(where: { selectedElementIds.contains($0.id) })
+        for i in 0..<pages.count {
+            pages[i].elements.removeAll(where: { selectedElementIds.contains($0.id) })
+        }
         selectedElementIds.removeAll()
         saveCanvas()
     }
@@ -1274,8 +1312,9 @@ class CanvasViewModel: ObservableObject {
     
     func getSelectedContent() -> String {
         var content = ""
+        let elementsToSearch = allElementsWithOffsets
         for id in selectedElementIds {
-            if let element = elements.first(where: { $0.id == id }) {
+            if let element = elementsToSearch.first(where: { $0.id == id }) {
                 switch element.data {
                 case .text(let data):
                     content += "Text: \(data.text)\n"
@@ -1303,7 +1342,7 @@ class CanvasViewModel: ObservableObject {
         let proposedRect = CGRect(origin: preferredPosition, size: size)
         
         // Get all element bounding boxes except excluded ones
-        let existingRects = elements.compactMap { element -> CGRect? in
+        let existingRects = allElementsWithOffsets.compactMap { element -> CGRect? in
             guard !excludeIds.contains(element.id) else { return nil }
             return CGRect(x: element.x, y: element.y, width: element.width, height: element.height)
         }
@@ -1380,8 +1419,10 @@ class CanvasViewModel: ObservableObject {
         
         saveState()
         
-        // Remove original elements
-        elements.removeAll(where: { selectedElementIds.contains($0.id) })
+        // Remove original elements from all pages
+        for i in 0..<pages.count {
+            pages[i].elements.removeAll(where: { selectedElementIds.contains($0.id) })
+        }
         
         let width = bounds.width
         let height = bounds.height
@@ -1399,7 +1440,7 @@ class CanvasViewModel: ObservableObject {
             data: .image(ImageData(src: image.pngData()?.base64EncodedString() ?? "", originalWidth: image.size.width, originalHeight: image.size.height))
         )
         
-        elements.append(newElement)
+        addElement(newElement)
         
         // Select the new element
         selectedElementIds = [newElement.id]
@@ -1438,12 +1479,13 @@ class CanvasViewModel: ObservableObject {
             if let data = Data(base64Encoded: inkData.src), let uiImage = UIImage(data: data) {
                  imageCache[newElement.id] = uiImage
             }
-            
-            elements.append(newElement)
+            addElement(newElement)
         }
         
         // Remove original elements (REPLACE behavior)
-        elements.removeAll { originalIds.contains($0.id) }
+        for i in 0..<pages.count {
+            pages[i].elements.removeAll(where: { originalIds.contains($0.id) })
+        }
         
         // Clear selection to show the result clearly
         clearSelection()
