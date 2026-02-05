@@ -12,18 +12,19 @@ extension UTType {
 
 @Model
 final class NoteItem {
-    var id: UUID
-    var title: String
-    var createdAt: Date
-    var updatedAt: Date
-    var isFolder: Bool
-    var isPinned: Bool
+    // CloudKit requires all properties to have default values
+    var id: UUID = UUID()
+    var title: String = ""
+    var createdAt: Date = Date()
+    var updatedAt: Date = Date()
+    var isFolder: Bool = false
+    var isPinned: Bool = false
     
     @Relationship(deleteRule: .cascade, inverse: \NoteItem.parent)
-    var children: [NoteItem]?
+    var children: [NoteItem]? = nil
     
     @Relationship(deleteRule: .nullify)
-    var parent: NoteItem?
+    var parent: NoteItem? = nil
     
     init(title: String, isFolder: Bool = false, parent: NoteItem? = nil) {
         self.id = UUID()

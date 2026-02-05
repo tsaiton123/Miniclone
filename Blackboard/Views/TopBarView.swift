@@ -2,13 +2,17 @@ import SwiftUI
 
 struct TopBarView: View {
     @Binding var searchText: String
+    var onSettings: (() -> Void)? = nil
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
     
     var body: some View {
-        HStack {
-            Text("Cognote")
-                .font(.title2)
-                .foregroundColor(.white) // Reference has white text on dark background
-                .padding(.leading, 20)
+        HStack(spacing: 12) {
+            if horizontalSizeClass != .compact {
+                Text("Cognote")
+                    .font(.title2)
+                    .foregroundColor(.white)
+                    .padding(.leading, 20)
+            }
             
             Spacer()
             
@@ -26,13 +30,25 @@ struct TopBarView: View {
                 }
                 .padding(.trailing, 8)
             }
-            .frame(width: 300)
-            .background(Color.white.opacity(0.1)) // Dark transparent background
+            .frame(maxWidth: horizontalSizeClass == .compact ? .infinity : 300)
+            .background(Color.white.opacity(0.1))
             .cornerRadius(4)
-            .padding(.trailing, 20)
+            .padding(.horizontal, horizontalSizeClass == .compact ? 12 : 0)
+            
+            if horizontalSizeClass == .compact {
+                Button(action: { onSettings?() }) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.white)
+                }
+                .padding(.trailing, 12)
+            } else {
+                Spacer()
+                    .frame(width: 20)
+            }
         }
         .frame(height: 60)
-        .background(Color(hex: "1a1a1a")) // Dark background like reference
+        .background(Color(hex: "1a1a1a"))
     }
 }
 

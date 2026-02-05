@@ -10,6 +10,7 @@ struct BlackboardView: View {
     @StateObject private var viewModel: CanvasViewModel
     @EnvironmentObject var subscriptionManager: SubscriptionManager
     @EnvironmentObject var authManager: AuthenticationManager
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
     
     init(note: NoteItem) {
         self.note = note
@@ -39,6 +40,9 @@ struct BlackboardView: View {
                 Task {
                     await subscriptionManager.refreshStatus()
                 }
+            }
+            .onChange(of: geometry.size) { newSize in
+                viewModel.updateViewportSize(newSize)
             }
         }
         .navigationTitle(note.title)
@@ -235,7 +239,7 @@ struct BlackboardView: View {
             }
             
             // Top Selection Layer (Selected elements only, rendered over all pages)
-            ForEach(viewModel.allElementsWithOffsets.filter { viewModel.selectedElementIds.contains($0.id) }) { element in
+            ForEach(viewModel.selectedElementsWithOffsets) { element in
                 CanvasElementView(
                     element: element,
                     viewModel: viewModel,
@@ -699,7 +703,7 @@ struct BlackboardView: View {
                     canUndo: viewModel.canUndo,
                     canRedo: viewModel.canRedo
                 )
-                .padding(.top, 60)
+                .padding(.top, horizontalSizeClass == .compact ? 10 : 60)
                 Spacer()
             }
             .sheet(isPresented: $isShowingExportOptions) {

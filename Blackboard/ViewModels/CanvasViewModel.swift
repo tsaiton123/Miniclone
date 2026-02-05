@@ -23,6 +23,22 @@ class CanvasViewModel: ObservableObject {
         return shiftedElements
     }
 
+    var selectedElementsWithOffsets: [CanvasElementData] {
+        var shiftedElements: [CanvasElementData] = []
+        let pageHeight = CanvasConstants.a4Height + CanvasViewModel.pageGap
+        for (index, page) in pages.enumerated() {
+            let yOffset = CGFloat(index) * pageHeight
+            for element in page.elements {
+                if selectedElementIds.contains(element.id) {
+                    var newElement = element
+                    newElement.y += yOffset
+                    shiftedElements.append(newElement)
+                }
+            }
+        }
+        return shiftedElements
+    }
+
     // Elements for the current page (legacy support/compatibility)
     var elements: [CanvasElementData] {
         get {
@@ -318,6 +334,21 @@ class CanvasViewModel: ObservableObject {
         updateCurrentPageIndex()
     }
     
+    func updateViewportSize(_ size: CGSize) {
+        guard size.width > 0 && size.height > 0 else { return }
+        let oldSize = viewportSize
+        viewportSize = size
+        
+        // If the size changed significantly (e.g., rotation), re-center or snap
+        if abs(oldSize.width - size.width) > 1 || abs(oldSize.height - size.height) > 1 {
+            if !hasCenteredInitial {
+                centerCanvas(in: size)
+            } else {
+                snapToBoundaries(animated: true)
+            }
+        }
+    }
+    
     func clearCanvas() {
         saveState()
         elements.removeAll()
@@ -362,22 +393,24 @@ class CanvasViewModel: ObservableObject {
         }
         
         // Otherwise, calculate bounds of selected elements using their global offsets
-        let elementsToSearch = allElementsWithOffsets
-        
         var minX: CGFloat = .infinity
         var minY: CGFloat = .infinity
         var maxX: CGFloat = -.infinity
         var maxY: CGFloat = -.infinity
         
         var hasElements = false
+        let pageHeight = CanvasConstants.a4Height + CanvasViewModel.pageGap
         
-        for id in selectedElementIds {
-            if let element = elementsToSearch.first(where: { $0.id == id }) {
-                hasElements = true
-                minX = min(minX, element.x)
-                minY = min(minY, element.y)
-                maxX = max(maxX, element.x + element.width)
-                maxY = max(maxY, element.y + element.height)
+        for (index, page) in pages.enumerated() {
+            let yOffset = CGFloat(index) * pageHeight
+            for element in page.elements {
+                if selectedElementIds.contains(element.id) {
+                    hasElements = true
+                    minX = min(minX, element.x)
+                    minY = min(minY, element.y + yOffset)
+                    maxX = max(maxX, element.x + element.width)
+                    maxY = max(maxY, element.y + yOffset + element.height)
+                }
             }
         }
         
@@ -1579,8 +1612,9 @@ class CanvasViewModel: ObservableObject {
         saveState()
         initialSelectionBounds = selectedElementsBounds
         initialSelectedElements.removeAll()
+        let elementsToSearch = allElementsWithOffsets
         for id in selectedElementIds {
-            if let element = elements.first(where: { $0.id == id }) {
+            if let element = elementsToSearch.first(where: { $0.id == id }) {
                 initialSelectedElements[id] = element
             }
         }
@@ -1605,37 +1639,44 @@ class CanvasViewModel: ObservableObject {
         let scaleX = newSize.width / initialBounds.width
         let scaleY = newSize.height / initialBounds.height
         
+        let pageHeight = CanvasConstants.a4Height + CanvasViewModel.pageGap
+        
         for (id, initialElement) in initialSelectedElements {
-            if let index = elements.firstIndex(where: { $0.id == id }) {
-                var element = elements[index]
-                
-                // Calculate new position relative to bounds origin
-                let relativeX = initialElement.x - initialBounds.minX
-                let relativeY = initialElement.y - initialBounds.minY
-                
-                let newX = initialBounds.minX + (relativeX * scaleX)
-                let newY = initialBounds.minY + (relativeY * scaleY)
-                let newWidth = initialElement.width * scaleX
-                let newHeight = initialElement.height * scaleY
-                
-                // Apply new position and size without boundary clamping
-                element.x = newX
-                element.y = newY
-                element.width = newWidth
-                element.height = newHeight
-                
-                // Scale content
-                if case .stroke(let data) = initialElement.data {
-                    let newPoints = data.points.map { point in
-                        StrokeData.Point(x: point.x * scaleX, y: point.y * scaleY)
-                    }
-                    let scale = (scaleX + scaleY) / 2.0
-                    let newWidth = data.width * scale
+            // We need to find which page this element belongs to and update it there
+            for pageIndex in 0..<pages.count {
+                if let elementIndex = pages[pageIndex].elements.firstIndex(where: { $0.id == id }) {
+                    var element = pages[pageIndex].elements[elementIndex]
+                    let yOffset = CGFloat(pageIndex) * pageHeight
                     
-                    element.data = .stroke(StrokeData(points: newPoints, color: data.color, width: newWidth, brushType: data.brushType))
+                    // Calculate new position relative to bounds origin (in global coordinates)
+                    let relativeX = initialElement.x - initialBounds.minX
+                    let relativeY = initialElement.y - initialBounds.minY
+                    
+                    let newGlobalX = initialBounds.minX + (relativeX * scaleX)
+                    let newGlobalY = initialBounds.minY + (relativeY * scaleY)
+                    let newWidth = initialElement.width * scaleX
+                    let newHeight = initialElement.height * scaleY
+                    
+                    // Apply new position and size, converting back to local page coordinates
+                    element.x = newGlobalX
+                    element.y = newGlobalY - yOffset
+                    element.width = newWidth
+                    element.height = newHeight
+                    
+                    // Scale content if it's a stroke
+                    if case .stroke(let data) = initialElement.data {
+                        let newPoints = data.points.map { point in
+                            StrokeData.Point(x: point.x * scaleX, y: point.y * scaleY)
+                        }
+                        let strokeScale = (scaleX + scaleY) / 2.0
+                        let newStrokeWidth = data.width * strokeScale
+                        
+                        element.data = .stroke(StrokeData(points: newPoints, color: data.color, width: newStrokeWidth, brushType: data.brushType))
+                    }
+                    
+                    pages[pageIndex].elements[elementIndex] = element
+                    break
                 }
-                
-                elements[index] = element
             }
         }
     }

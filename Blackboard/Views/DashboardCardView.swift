@@ -15,18 +15,20 @@ struct DashboardCardView: View {
         colorScheme == .dark
     }
     
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
+    
     var body: some View {
         VStack(alignment: .leading) {
             Text(title)
-                .font(.system(size: 32, weight: .regular))
+                .font(.system(size: horizontalSizeClass == .compact ? 24 : 32, weight: .regular))
                 .foregroundColor(.primary)
-                .padding(.top, 20)
+                .padding(.top, horizontalSizeClass == .compact ? 15 : 20)
             
             Text(description)
                 .font(.body)
                 .foregroundColor(.secondary)
                 .padding(.top, 5)
-                .padding(.bottom, 20)
+                .padding(.bottom, horizontalSizeClass == .compact ? 15 : 20)
             
             Spacer()
             
@@ -41,11 +43,12 @@ struct DashboardCardView: View {
                 .foregroundColor(isDarkMode ? .white : .blue)
                 .border(isDarkMode ? Color.clear : Color.blue.opacity(0.3), width: 1)
             }
-            .frame(width: 180)
+            .frame(width: horizontalSizeClass == .compact ? 150 : 180)
             .padding(.bottom, 20)
         }
         .padding(.horizontal, 20)
-        .frame(maxWidth: .infinity, maxHeight: 250, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: horizontalSizeClass == .compact ? 220 : 250)
         .background(backgroundColor)
     }
 }

@@ -3,15 +3,34 @@ import Foundation
 class StorageManager {
     static let shared = StorageManager()
     private let fileManager = FileManager.default
+    private let cloudStorage = CloudStorageManager.shared
     
-    private init() {}
-    
-    private func getDocumentsDirectory() -> URL {
-        fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    private init() {
+        // Attempt migration on initialization
+        migrateToCloudIfNeeded()
     }
     
+    // MARK: - Migration
+    
+    private var hasMigrated: Bool {
+        get { UserDefaults.standard.bool(forKey: "hasAttemptedCloudMigration") }
+        set { UserDefaults.standard.set(newValue, forKey: "hasAttemptedCloudMigration") }
+    }
+    
+    private func migrateToCloudIfNeeded() {
+        // Only attempt migration once
+        guard !hasMigrated else { return }
+        
+        if cloudStorage.isCloudAvailable {
+            cloudStorage.migrateLocalFilesToCloud()
+            hasMigrated = true
+        }
+    }
+    
+    // MARK: - Canvas Storage (now uses CloudStorageManager)
+    
     private func getFileURL(for id: UUID) -> URL {
-        getDocumentsDirectory().appendingPathComponent("\(id.uuidString).json")
+        return cloudStorage.getFileURL(for: id)
     }
     
     func saveCanvas(id: UUID, data: CanvasData) throws {
@@ -19,18 +38,35 @@ class StorageManager {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let jsonData = try encoder.encode(data)
-        try jsonData.write(to: url)
-        print("Saved canvas to \(url.path)")
+        try cloudStorage.saveData(jsonData, to: url)
+        print("[StorageManager] Saved canvas to \(url.path)")
     }
     
     func loadCanvas(id: UUID) throws -> CanvasData {
         let url = getFileURL(for: id)
-        guard fileManager.fileExists(atPath: url.path) else {
+        guard cloudStorage.fileExists(at: url) else {
+            // Check local fallback for non-migrated files
+            let localURL = getLocalDocumentsDirectory().appendingPathComponent("\(id.uuidString).json")
+            if fileManager.fileExists(atPath: localURL.path) {
+                let data = try Data(contentsOf: localURL)
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                let canvas = try decoder.decode(CanvasData.self, from: data)
+                
+                // Migrate this file to cloud
+                if cloudStorage.isCloudAvailable {
+                    try? saveCanvas(id: id, data: canvas)
+                    try? fileManager.removeItem(at: localURL)
+                }
+                
+                return canvas
+            }
+            
             // Return empty canvas if file doesn't exist
             return CanvasData(elements: [])
         }
         
-        let data = try Data(contentsOf: url)
+        let data = try cloudStorage.loadData(from: url)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(CanvasData.self, from: data)
@@ -38,21 +74,35 @@ class StorageManager {
     
     func deleteCanvas(id: UUID) {
         let url = getFileURL(for: id)
-        try? fileManager.removeItem(at: url)
+        try? cloudStorage.deleteFile(at: url)
+        
+        // Also delete local copy if exists
+        let localURL = getLocalDocumentsDirectory().appendingPathComponent("\(id.uuidString).json")
+        try? fileManager.removeItem(at: localURL)
     }
     
-    /// Deletes all canvas files from the documents directory
+    // MARK: - Private Helpers
+    
+    private func getLocalDocumentsDirectory() -> URL {
+        fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    }
+    
+    /// Deletes all canvas files from both cloud and local storage
     /// Used when deleting user account
     func deleteAllCanvases() {
-        let documentsDirectory = getDocumentsDirectory()
+        // Delete from cloud storage
+        cloudStorage.deleteAllCanvasFiles()
+        
+        // Also clean up any remaining local files
+        let documentsDirectory = getLocalDocumentsDirectory()
         do {
             let files = try fileManager.contentsOfDirectory(at: documentsDirectory, includingPropertiesForKeys: nil)
             for file in files where file.pathExtension == "json" {
                 try? fileManager.removeItem(at: file)
-                print("Deleted canvas file: \(file.lastPathComponent)")
+                print("[StorageManager] Deleted local canvas file: \(file.lastPathComponent)")
             }
         } catch {
-            print("Failed to enumerate documents directory: \(error)")
+            print("[StorageManager] Failed to enumerate documents directory: \(error)")
         }
     }
     
@@ -61,7 +111,7 @@ class StorageManager {
     func deleteSwiftDataStore() {
         // SwiftData stores its data in the Application Support directory by default
         guard let appSupportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            print("Failed to get Application Support directory")
+            print("[StorageManager] Failed to get Application Support directory")
             return
         }
         
@@ -76,12 +126,18 @@ class StorageManager {
             if fileManager.fileExists(atPath: fileURL.path) {
                 do {
                     try fileManager.removeItem(at: fileURL)
-                    print("Deleted SwiftData file: \(fileURL.lastPathComponent)")
+                    print("[StorageManager] Deleted SwiftData file: \(fileURL.lastPathComponent)")
                 } catch {
-                    print("Failed to delete \(fileURL.lastPathComponent): \(error)")
+                    print("[StorageManager] Failed to delete \(fileURL.lastPathComponent): \(error)")
                 }
             }
         }
     }
+    
+    // MARK: - Sync Status
+    
+    /// Returns true if iCloud sync is available
+    var isCloudSyncEnabled: Bool {
+        return cloudStorage.isCloudAvailable
+    }
 }
-
