@@ -46,10 +46,8 @@ class CloudStorageManager {
     /// Get the appropriate storage directory (iCloud if available, local otherwise)
     func getStorageDirectory() -> URL {
         if isCloudAvailable, let cloudDocs = cloudDocumentsURL {
-            print("[CloudStorageManager] Using iCloud storage: \(cloudDocs.path)")
             return cloudDocs
         } else {
-            print("[CloudStorageManager] Using local storage: \(localDocumentsURL.path)")
             return localDocumentsURL
         }
     }
@@ -72,7 +70,6 @@ class CloudStorageManager {
             coordinator.coordinate(writingItemAt: url, options: .forReplacing, error: &coordinationError) { coordinatedURL in
                 do {
                     try data.write(to: coordinatedURL, options: .atomic)
-                    print("[CloudStorageManager] Saved to iCloud: \(coordinatedURL.lastPathComponent)")
                 } catch {
                     saveError = error
                 }
@@ -84,7 +81,6 @@ class CloudStorageManager {
         } else {
             // Direct write for local storage
             try data.write(to: url, options: .atomic)
-            print("[CloudStorageManager] Saved locally: \(url.lastPathComponent)")
         }
     }
     
@@ -141,10 +137,7 @@ class CloudStorageManager {
     
     /// Migrate existing local files to iCloud when becoming available
     func migrateLocalFilesToCloud() {
-        guard isCloudAvailable, let cloudDocs = cloudDocumentsURL else {
-            print("[CloudStorageManager] Cannot migrate - iCloud not available")
-            return
-        }
+        guard isCloudAvailable, let cloudDocs = cloudDocumentsURL else { return }
         
         do {
             let localFiles = try fileManager.contentsOfDirectory(at: localDocumentsURL, includingPropertiesForKeys: nil)
@@ -156,16 +149,10 @@ class CloudStorageManager {
                 // Only migrate if file doesn't exist in cloud
                 if !fileManager.fileExists(atPath: cloudDestination.path) {
                     try fileManager.copyItem(at: localFile, to: cloudDestination)
-                    print("[CloudStorageManager] Migrated: \(localFile.lastPathComponent)")
-                    
-                    // Optionally remove local copy after successful migration
-                    // try fileManager.removeItem(at: localFile)
                 }
             }
-            
-            print("[CloudStorageManager] Migration complete - \(jsonFiles.count) files processed")
         } catch {
-            print("[CloudStorageManager] Migration error: \(error)")
+            // Migration failed silently - files remain local
         }
     }
     
@@ -181,7 +168,6 @@ class CloudStorageManager {
             let files = try fileManager.contentsOfDirectory(at: storageDir, includingPropertiesForKeys: nil)
             return files.filter { $0.pathExtension == "json" }
         } catch {
-            print("[CloudStorageManager] Error listing files: \(error)")
             return []
         }
     }
@@ -191,7 +177,6 @@ class CloudStorageManager {
         let files = getAllCanvasFiles()
         for file in files {
             try? deleteFile(at: file)
-            print("[CloudStorageManager] Deleted: \(file.lastPathComponent)")
         }
     }
 }

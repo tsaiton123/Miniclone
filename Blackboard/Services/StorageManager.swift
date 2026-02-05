@@ -39,7 +39,6 @@ class StorageManager {
         encoder.dateEncodingStrategy = .iso8601
         let jsonData = try encoder.encode(data)
         try cloudStorage.saveData(jsonData, to: url)
-        print("[StorageManager] Saved canvas to \(url.path)")
     }
     
     func loadCanvas(id: UUID) throws -> CanvasData {
@@ -99,10 +98,9 @@ class StorageManager {
             let files = try fileManager.contentsOfDirectory(at: documentsDirectory, includingPropertiesForKeys: nil)
             for file in files where file.pathExtension == "json" {
                 try? fileManager.removeItem(at: file)
-                print("[StorageManager] Deleted local canvas file: \(file.lastPathComponent)")
             }
         } catch {
-            print("[StorageManager] Failed to enumerate documents directory: \(error)")
+            // Silently handle errors
         }
     }
     
@@ -111,7 +109,6 @@ class StorageManager {
     func deleteSwiftDataStore() {
         // SwiftData stores its data in the Application Support directory by default
         guard let appSupportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            print("[StorageManager] Failed to get Application Support directory")
             return
         }
         
@@ -124,12 +121,7 @@ class StorageManager {
         for ext in extensions {
             let fileURL = URL(fileURLWithPath: storeURL.path + ext)
             if fileManager.fileExists(atPath: fileURL.path) {
-                do {
-                    try fileManager.removeItem(at: fileURL)
-                    print("[StorageManager] Deleted SwiftData file: \(fileURL.lastPathComponent)")
-                } catch {
-                    print("[StorageManager] Failed to delete \(fileURL.lastPathComponent): \(error)")
-                }
+                try? fileManager.removeItem(at: fileURL)
             }
         }
     }

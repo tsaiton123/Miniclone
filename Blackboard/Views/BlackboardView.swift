@@ -898,8 +898,9 @@ struct BlackboardView: View {
                 .zIndex(100)
             }
             
-            // Status Overlay (top-left corner)
+            // Status Overlay (bottom-left corner)
             VStack {
+                Spacer()
                 HStack {
                     if kSubscriptionBypassEnabled {
                         // Show AI quota when bypass is enabled
@@ -923,9 +924,8 @@ struct BlackboardView: View {
                     }
                     Spacer()
                 }
-                .padding(.top, 50)
+                .padding(.bottom, 20)
                 .padding(.leading, 20)
-                Spacer()
             }
             
             // AI Processing Indicator
