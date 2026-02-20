@@ -11,6 +11,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var subscriptionManager: SubscriptionManager
     @EnvironmentObject var authManager: AuthenticationManager
+    @EnvironmentObject var themeManager: ThemeManager
     @Environment(\.dismiss) private var dismiss
     
     @State private var showingSignOutAlert = false
@@ -22,6 +23,14 @@ struct SettingsView: View {
                 Section(header: Text("Subscription")) {
                     SubscriptionStatusView()
                         .environmentObject(subscriptionManager)
+                }
+                
+                Section(header: Text("Appearance"), footer: Text("Pick a color system that matches your mood. Changes apply across Cognote immediately.")) {
+                    ForEach(AppTheme.allCases) { theme in
+                        ThemeSelectionRow(theme: theme, isSelected: themeManager.currentTheme == theme) {
+                            themeManager.select(theme)
+                        }
+                    }
                 }
                 
                 Section(header: Text("Account")) {
@@ -80,8 +89,46 @@ struct SettingsView: View {
     }
 }
 
+struct ThemeSelectionRow: View {
+    let theme: AppTheme
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(theme.previewGradient)
+                    .frame(width: 52, height: 52)
+                    .overlay(
+                        Image(systemName: theme.iconName)
+                            .font(.title2)
+                            .foregroundColor(.white.opacity(0.9))
+                    )
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(theme.displayName)
+                        .font(.headline)
+                    Text(theme.description)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.accentColor)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+}
+
 #Preview {
     SettingsView()
         .environmentObject(SubscriptionManager())
         .environmentObject(AuthenticationManager())
+        .environmentObject(ThemeManager())
 }

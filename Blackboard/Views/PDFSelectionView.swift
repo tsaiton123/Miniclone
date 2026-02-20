@@ -5,6 +5,7 @@ struct PDFSelectionView: View {
     let pdfDocument: PDFDocument
     var onImport: (CGRect, UIImage) -> Void
     @Environment(\.dismiss) var dismiss
+    @Environment(\.appTheme) private var appTheme
     @State private var currentPageIndex: Int = 0
     @State private var selectionRect: CGRect = .zero
     @State private var isDragging: Bool = false
@@ -46,8 +47,8 @@ struct PDFSelectionView: View {
                         
                         // Selection Overlay
                         Rectangle()
-                            .stroke(Color.blue, lineWidth: 2)
-                            .background(Color.blue.opacity(0.2))
+                            .stroke(appTheme.accentColor, lineWidth: 2)
+                            .background(appTheme.accentColor.opacity(0.2))
                             .frame(width: selectionRect.width, height: selectionRect.height)
                             .position(x: selectionRect.midX, y: selectionRect.midY)
                     }
@@ -181,4 +182,3 @@ struct PDFSelectionView: View {
         }
     }
 }
-

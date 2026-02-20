@@ -13,6 +13,7 @@ struct CanvasElementView: View {
     
     @State private var editedText: String = ""
     @FocusState private var isFocused: Bool
+    @Environment(\.appTheme) private var appTheme
     
     var body: some View {
         ZStack {
@@ -157,7 +158,7 @@ struct CanvasElementView: View {
             isSelected ? 
             ZStack(alignment: .topLeading) {
                 Rectangle()
-                    .stroke(Color.blue, style: StrokeStyle(lineWidth: 2, dash: [5]))
+                    .stroke(appTheme.accentColor, style: StrokeStyle(lineWidth: 2, dash: [5]))
                 
                 // Delete Button
                 Button(action: onDelete) {

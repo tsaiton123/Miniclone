@@ -12,6 +12,7 @@ import StoreKit
 struct PaywallView: View {
     @EnvironmentObject var subscriptionManager: SubscriptionManager
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appTheme) private var appTheme
     
     @State private var selectedProduct: Product?
     @State private var isPurchasing = false
@@ -69,7 +70,7 @@ struct PaywallView: View {
             Image(systemName: "sparkles")
                 .font(.system(size: 50))
                 .foregroundStyle(.linearGradient(
-                    colors: [.purple, .blue],
+                    colors: appTheme.gradientColors,
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 ))
@@ -106,13 +107,13 @@ struct PaywallView: View {
                 Text("Basic")
                     .font(.footnote)
                     .fontWeight(.semibold)
-                    .foregroundColor(.blue)
+                    .foregroundColor(appTheme.accentColor)
                     .frame(width: 60)
                 
                 Text("Pro")
                     .font(.footnote)
                     .fontWeight(.semibold)
-                    .foregroundColor(.purple)
+                    .foregroundColor(appTheme.accentSecondaryColor)
                     .frame(width: 60)
             }
             .padding(.horizontal, 12)
@@ -140,11 +141,11 @@ struct PaywallView: View {
             
             Text(basic)
                 .frame(width: 60)
-                .foregroundColor(.blue)
+                .foregroundColor(appTheme.accentColor)
             
             Text(pro)
                 .frame(width: 60)
-                .foregroundColor(.purple)
+                .foregroundColor(appTheme.accentSecondaryColor)
         }
         .font(.footnote)
         .padding(.horizontal, 12)
@@ -217,7 +218,7 @@ struct PaywallView: View {
                         .font(.headline)
                         .padding(.horizontal, 24)
                         .padding(.vertical, 12)
-                        .background(Color.blue)
+                        .background(appTheme.accentColor)
                         .foregroundColor(.white)
                         .cornerRadius(10)
                     }
@@ -260,8 +261,8 @@ struct PaywallView: View {
                 .background(
                     LinearGradient(
                         colors: selectedProduct?.id.contains("pro") == true
-                            ? [.purple, .pink]
-                            : [.blue, .cyan],
+                            ? appTheme.gradientColors
+                            : Array(appTheme.gradientColors.reversed()),
                         startPoint: .leading,
                         endPoint: .trailing
                     )
@@ -342,6 +343,7 @@ struct SubscriptionOptionCard: View {
     let product: Product
     let isSelected: Bool
     let onSelect: () -> Void
+    @Environment(\.appTheme) private var appTheme
     
     private var isPro: Bool {
         product.id.contains("pro")
@@ -365,7 +367,7 @@ struct SubscriptionOptionCard: View {
                                 .fontWeight(.bold)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Color.green)
+                                .background(appTheme.accentSecondaryColor.opacity(0.8))
                                 .foregroundColor(.white)
                                 .cornerRadius(4)
                         }
@@ -376,7 +378,7 @@ struct SubscriptionOptionCard: View {
                                 .fontWeight(.bold)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Color.purple)
+                                .background(appTheme.accentColor)
                                 .foregroundColor(.white)
                                 .cornerRadius(4)
                         }
@@ -405,7 +407,7 @@ struct SubscriptionOptionCard: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(isSelected ? (isPro ? Color.purple : Color.blue) : Color.clear, lineWidth: 2)
+                    .stroke(isSelected ? (isPro ? appTheme.accentSecondaryColor : appTheme.accentColor) : Color.clear, lineWidth: 2)
             )
         }
         .buttonStyle(.plain)

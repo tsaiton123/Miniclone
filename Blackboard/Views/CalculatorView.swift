@@ -1,9 +1,11 @@
 import SwiftUI
+import JavaScriptCore
 
 struct CalculatorView: View {
     @State private var display = "0"
     @State private var isAdvanced = false
     @State private var offset = CGSize.zero
+    @Environment(\.appTheme) private var appTheme
     
     // Basic Buttons
     let basicButtons: [[CalcButton]] = [
@@ -30,7 +32,7 @@ struct CalculatorView: View {
                 Spacer()
                 Button(action: { isAdvanced.toggle() }) {
                     Image(systemName: isAdvanced ? "function" : "plus.slash.minus")
-                        .foregroundColor(.blue)
+                        .foregroundColor(appTheme.accentColor)
                 }
             }
             .padding(.horizontal)
@@ -137,7 +139,7 @@ struct CalculatorView: View {
                 display += val
             }
         case .parenthesis(let p):
-            if display == "0" {
+            if display == "0" || display == "Error" {
                 display = p
             } else {
                 display += p
@@ -152,20 +154,33 @@ struct CalculatorView: View {
     }
     
     func calculate() {
-        // Replace symbols for NSExpression
-        let expr = display.replacingOccurrences(of: "×", with: "*")
+        let expr = display
+            .replacingOccurrences(of: "×", with: "*")
             .replacingOccurrences(of: "÷", with: "/")
-            .replacingOccurrences(of: "sin", with: "function(sin,") // NSExpression format is weird for functions
-            // Actually, NSExpression supports standard functions like sin(), cos() etc.
-            // But we need to be careful with syntax.
+            .replacingOccurrences(of: "sin(", with: "Math.sin(")
+            .replacingOccurrences(of: "cos(", with: "Math.cos(")
+            .replacingOccurrences(of: "tan(", with: "Math.tan(")
+            .replacingOccurrences(of: "log(", with: "Math.log10(")
+            .replacingOccurrences(of: "ln(", with: "Math.log(")
+            .replacingOccurrences(of: "sqrt(", with: "Math.sqrt(")
+            .replacingOccurrences(of: "abs(", with: "Math.abs(")
+            .replacingOccurrences(of: "π", with: "Math.PI")
+            .replacingOccurrences(of: "e", with: "Math.E")
+            .replacingOccurrences(of: "^", with: "**")
         
-        // Let's use a simpler approach: NSExpression
-        let expression = NSExpression(format: display)
-        if let result = expression.expressionValue(with: nil, context: nil) as? Double {
-            display = formatResult(result)
-        } else {
-            display = "Error"
+        if let context = JSContext() {
+            context.exceptionHandler = { context, exception in
+                // Ignore JS exceptions to prevent parsing errors from bubbling up
+            }
+            if let result = context.evaluateScript(expr) {
+                if result.isNumber && !result.toNumber().doubleValue.isNaN && !result.toNumber().doubleValue.isInfinite {
+                    display = formatResult(result.toDouble())
+                    return
+                }
+            }
         }
+        
+        display = "Error"
     }
     
     func formatResult(_ value: Double) -> String {
@@ -205,20 +220,12 @@ enum CalcButton: Hashable {
         }
     }
     
-    var color: Color {
-        switch self {
-        case .clear, .delete: return .red.opacity(0.8)
-        case .equal: return .green
-        case .add, .subtract, .multiply, .divide: return .orange
-        case .digit, .decimal, .toggleSign: return .gray.opacity(0.2)
-        default: return .blue.opacity(0.2)
-        }
-    }
 }
 
 struct CalculatorButton: View {
     let button: CalcButton
     let action: () -> Void
+    @Environment(\.appTheme) private var appTheme
     
     var body: some View {
         Button(action: action) {
@@ -226,9 +233,33 @@ struct CalculatorButton: View {
                 .font(.title2)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .frame(height: 50)
-                .background(button.color)
-                .foregroundColor(.primary)
+                .background(backgroundColor)
+                .foregroundColor(foregroundColor)
                 .cornerRadius(8)
+        }
+    }
+    
+    private var backgroundColor: Color {
+        switch button {
+        case .clear, .delete:
+            return Color.red.opacity(0.15)
+        case .equal:
+            return appTheme.accentColor
+        case .add, .subtract, .multiply, .divide:
+            return appTheme.accentColor.opacity(0.18)
+        case .function, .constant, .parenthesis:
+            return appTheme.accentColor.opacity(0.12)
+        default:
+            return Color.gray.opacity(0.2)
+        }
+    }
+    
+    private var foregroundColor: Color {
+        switch button {
+        case .equal:
+            return appTheme.textOnAccent
+        default:
+            return .primary
         }
     }
 }

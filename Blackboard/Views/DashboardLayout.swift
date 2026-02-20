@@ -7,6 +7,7 @@ struct DashboardLayout<Content: View>: View {
     let content: Content
     
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
+    @Environment(\.appTheme) private var appTheme
     
     init(searchText: Binding<String>, selectedTab: Binding<Int>, onSettings: @escaping () -> Void = {}, @ViewBuilder content: () -> Content) {
         self._searchText = searchText
@@ -55,7 +56,7 @@ struct DashboardLayout<Content: View>: View {
                 .background(Color(UIColor.secondarySystemBackground))
             }
         }
-        .background(Color(hex: "1a1a1a")) // Match top bar background for status bar area
+        .background(appTheme.chromeBackground)
     }
 }
 
@@ -64,6 +65,7 @@ struct TabButton: View {
     let label: String
     let isSelected: Bool
     let action: () -> Void
+    @Environment(\.appTheme) private var appTheme
     
     var body: some View {
         Button(action: action) {
@@ -73,9 +75,8 @@ struct TabButton: View {
                 Text(label)
                     .font(.caption2)
             }
-            .foregroundColor(isSelected ? .blue : .gray)
+            .foregroundColor(isSelected ? appTheme.accentColor : .gray)
             .frame(maxWidth: .infinity)
         }
     }
 }
-

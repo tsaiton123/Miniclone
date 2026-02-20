@@ -6,6 +6,7 @@ struct FileSystemView: View {
     @StateObject private var viewModel: FileSystemViewModel
     @EnvironmentObject var subscriptionManager: SubscriptionManager
     @EnvironmentObject var authManager: AuthenticationManager
+    @Environment(\.appTheme) private var appTheme
     @Query private var allItems: [NoteItem]
     
     @State private var isShowingCreateNote = false
@@ -28,6 +29,14 @@ struct FileSystemView: View {
     /// Whether the user can create more notes
     var canCreateNote: Bool {
         subscriptionManager.currentTier.hasUnlimitedNotes || noteCount < subscriptionManager.currentTier.maxNotes
+    }
+    
+    /// Message shown when the user hits their note quota
+    var noteLimitMessage: String? {
+        guard !canCreateNote else { return nil }
+        let tier = subscriptionManager.currentTier
+        guard !tier.hasUnlimitedNotes, tier.maxNotes != Int.max else { return nil }
+        return "You've reached the \(tier.maxNotes) note limit included in Cognote \(tier.displayName). Upgrade to keep creating new notes."
     }
     
     var filteredItems: [NoteItem] {
@@ -86,7 +95,7 @@ struct FileSystemView: View {
                                     title: item.title,
                                     description: item.isFolder ? "Folder • \(item.children?.count ?? 0) items" : "Note • \(item.createdAt.formatted(date: .abbreviated, time: .shortened))",
                                     icon: item.isFolder ? "folder" : "doc.text",
-                                    backgroundColor: item.isFolder ? Color.blue.opacity(0.1) : Color(UIColor.secondarySystemBackground), // Light Blue for Folders
+                                    backgroundColor: item.isFolder ? appTheme.cardBackground : Color(UIColor.secondarySystemBackground),
                                     buttonText: item.isFolder ? "Open" : "Get Started",
                                     action: {
                                         if item.isFolder {
@@ -147,33 +156,44 @@ struct FileSystemView: View {
                     selectedTab = 1
                 }
             }
-            .confirmationDialog("Create New", isPresented: $isShowingAddSheet, titleVisibility: .visible) {
-                Button("New Note") {
-                    if canCreateNote {
+            .sheet(isPresented: $isShowingAddSheet) {
+                AddItemOptionsSheet(
+                    canCreateNote: canCreateNote,
+                    currentLocationName: viewModel.currentFolder?.title ?? "Dashboard",
+                    itemCount: filteredItems.count,
+                    noteLimitMessage: noteLimitMessage,
+                    onSelectNote: {
                         newItemTitle = ""
-                        isShowingCreateNote = true
-                    } else {
-                        isShowingPaywall = true
+                        if canCreateNote {
+                            isShowingCreateNote = true
+                        } else {
+                            isShowingPaywall = true
+                        }
+                    },
+                    onSelectFolder: {
+                        newItemTitle = ""
+                        isShowingCreateFolder = true
                     }
-                }
-                Button("New Folder") {
-                    newItemTitle = ""
-                    isShowingCreateFolder = true
-                }
-                Button("Cancel", role: .cancel) { }
+                )
             }
-            .alert("New Note", isPresented: $isShowingCreateNote) {
-                TextField("Title", text: $newItemTitle)
-                Button("Cancel", role: .cancel) { }
-                Button("Create") {
-                    viewModel.createNote(title: newItemTitle)
+            .sheet(isPresented: $isShowingCreateNote) {
+                ItemCreationSheet(
+                    title: "New Note",
+                    message: "Name your note. You can always rename it later.",
+                    placeholder: "Note title",
+                    text: $newItemTitle
+                ) { title in
+                    viewModel.createNote(title: title)
                 }
             }
-            .alert("New Folder", isPresented: $isShowingCreateFolder) {
-                TextField("Title", text: $newItemTitle)
-                Button("Cancel", role: .cancel) { }
-                Button("Create") {
-                    viewModel.createFolder(title: newItemTitle)
+            .sheet(isPresented: $isShowingCreateFolder) {
+                ItemCreationSheet(
+                    title: "New Folder",
+                    message: "Give your folder a descriptive name.",
+                    placeholder: "Folder name",
+                    text: $newItemTitle
+                ) { title in
+                    viewModel.createFolder(title: title)
                 }
             }
             .alert("Rename", isPresented: Binding(
@@ -223,6 +243,7 @@ struct FileSystemView: View {
 struct FileSystemItemView: View {
     let item: NoteItem
     var onRename: () -> Void
+    @Environment(\.appTheme) private var appTheme
     
     var body: some View {
         VStack {
@@ -235,7 +256,7 @@ struct FileSystemItemView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 50, height: 50)
-                    .foregroundColor(item.isFolder ? .blue : .gray)
+                    .foregroundColor(item.isFolder ? appTheme.accentColor : .gray)
                 
                 if item.isPinned {
                     VStack {
@@ -254,5 +275,363 @@ struct FileSystemItemView: View {
                 .font(.caption)
                 .lineLimit(1)
         }
+    }
+}
+
+struct AddItemOptionsSheet: View {
+    let canCreateNote: Bool
+    let currentLocationName: String
+    let itemCount: Int
+    let noteLimitMessage: String?
+    let onSelectNote: () -> Void
+    let onSelectFolder: () -> Void
+    
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.appTheme) private var appTheme
+    @State private var selectedDetent: PresentationDetent = .large
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    header
+                    
+                    VStack(spacing: 16) {
+                        CreateOptionButton(
+                            title: "Blank Note",
+                            subtitle: canCreateNote ? "Start from a fresh page instantly." : "You've reached your note limit. Upgrade to keep creating.",
+                            icon: "square.and.pencil",
+                            tint: appTheme.accentColor,
+                            badgeText: canCreateNote ? nil : "Limit Reached",
+                            isLocked: !canCreateNote,
+                            action: { dismissAndExecute(onSelectNote) }
+                        )
+                        
+                        CreateOptionButton(
+                            title: "Folder",
+                            subtitle: "Group related notes and keep everything organized.",
+                            icon: "folder.badge.plus",
+                            tint: appTheme.accentSecondaryColor,
+                            badgeText: nil,
+                            isLocked: false,
+                            action: { dismissAndExecute(onSelectFolder) }
+                        )
+                    }
+                    
+                    if let noteLimitMessage {
+                        InfoCallout(
+                            icon: "info.circle.fill",
+                            iconTint: .orange,
+                            message: noteLimitMessage
+                        )
+                    }
+                    
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 32)
+                .padding(.horizontal, 24)
+            }
+            .scrollIndicators(.hidden)
+            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large], selection: $selectedDetent)
+        .presentationDragIndicator(.visible)
+        .onAppear {
+            selectedDetent = .large
+        }
+    }
+    
+    private var itemCountLabel: String {
+        itemCount == 1 ? "1 item" : "\(itemCount) items"
+    }
+    
+    @ViewBuilder
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 16) {
+                ZStack {
+                    Circle()
+                        .fill(appTheme.heroBackground)
+                        .frame(width: 60, height: 60)
+                    Image(systemName: currentLocationName == "Dashboard" ? "square.grid.2x2" : "folder.fill")
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundColor(appTheme.accentColor)
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Create new items")
+                        .font(.title3.bold())
+                    Text("Anything you add will live in \(currentLocationName).")
+                        .foregroundStyle(.secondary)
+                        .font(.subheadline)
+                }
+            }
+            
+            HStack(spacing: 8) {
+                Label(itemCountLabel, systemImage: "tray.full")
+                    .font(.caption.weight(.semibold))
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 12)
+                    .background(
+                        Capsule()
+                            .fill(appTheme.accentColor.opacity(0.1))
+                    )
+                Spacer()
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemGroupedBackground))
+        )
+    }
+    
+    private func dismissAndExecute(_ action: () -> Void) {
+        dismiss()
+        action()
+    }
+}
+
+struct ItemCreationSheet: View {
+    let title: String
+    let message: String
+    let placeholder: String
+    @Binding var text: String
+    let onConfirm: (String) -> Void
+    
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.appTheme) private var appTheme
+    @FocusState private var isTitleFieldFocused: Bool
+    @State private var selectedDetent: PresentationDetent = .large
+    
+    private let maxCharacters = 60
+    
+    private var trimmedText: String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    
+    private var heroIconName: String {
+        title.lowercased().contains("folder") ? "folder.badge.plus" : "square.and.pencil"
+    }
+    
+    private var primaryButtonTitle: String {
+        title.lowercased().contains("folder") ? "Create Folder" : "Create Note"
+    }
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    heroSection
+                    titleFieldSection
+                    primaryButton
+                }
+                .padding(.vertical, 32)
+                .padding(.horizontal, 24)
+            }
+            .scrollIndicators(.hidden)
+            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large], selection: $selectedDetent)
+        .presentationDragIndicator(.visible)
+        .onAppear {
+            selectedDetent = .large
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                isTitleFieldFocused = true
+            }
+        }
+        .onChange(of: text) { newValue in
+            if newValue.count > maxCharacters {
+                text = String(newValue.prefix(maxCharacters))
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var heroSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 16) {
+                ZStack {
+                    Circle()
+                        .fill(appTheme.heroBackground)
+                        .frame(width: 60, height: 60)
+                    Image(systemName: heroIconName)
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundColor(appTheme.accentColor)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.title3.bold())
+                    if !message.isEmpty {
+                        Text(message)
+                            .foregroundStyle(.secondary)
+                            .font(.subheadline)
+                    }
+                }
+            }
+            Text("Keep it short and descriptive for easier search later.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemGroupedBackground))
+        )
+    }
+    
+    @ViewBuilder
+    private var titleFieldSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Title")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
+            
+            TextField(placeholder, text: $text)
+                .focused($isTitleFieldFocused)
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .onSubmit(handleCreate)
+                .padding()
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .strokeBorder(appTheme.accentColor.opacity(0.3), lineWidth: 1)
+                )
+            
+            HStack {
+                Text("This helps keep things organized.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(trimmedText.count)/\(maxCharacters)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundColor(trimmedText.count >= maxCharacters ? .red : .secondary)
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemBackground))
+        )
+    }
+    
+    private var primaryButton: some View {
+        Button(action: handleCreate) {
+            Text(primaryButtonTitle)
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .disabled(trimmedText.isEmpty)
+    }
+    
+    private func handleCreate() {
+        let value = trimmedText
+        guard !value.isEmpty else { return }
+        onConfirm(value)
+        text = ""
+        dismiss()
+    }
+}
+
+struct InfoCallout: View {
+    let icon: String
+    let iconTint: Color
+    let message: String
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundColor(iconTint)
+                .padding(8)
+                .background(
+                    Circle()
+                        .fill(iconTint.opacity(0.15))
+                )
+            
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            
+            Spacer(minLength: 0)
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(iconTint.opacity(0.08))
+        )
+    }
+}
+
+struct CreateOptionButton: View {
+    let title: String
+    let subtitle: String
+    let icon: String
+    let tint: Color
+    let badgeText: String?
+    let isLocked: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .center, spacing: 18) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(tint.opacity(0.15))
+                        .frame(width: 58, height: 58)
+                    Image(systemName: icon)
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundColor(tint)
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(title)
+                            .font(.headline)
+                        if let badgeText {
+                            Text(badgeText.uppercased())
+                                .font(.caption2.bold())
+                                .padding(.vertical, 3)
+                                .padding(.horizontal, 8)
+                                .background(
+                                    Capsule()
+                                        .fill(tint.opacity(0.2))
+                                )
+                        }
+                    }
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                
+                Spacer()
+                
+                Image(systemName: isLocked ? "lock.fill" : "chevron.forward")
+                    .foregroundStyle(.secondary)
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                    .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: 4)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
     }
 }

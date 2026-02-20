@@ -4,6 +4,7 @@ struct TopBarView: View {
     @Binding var searchText: String
     var onSettings: (() -> Void)? = nil
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
+    @Environment(\.appTheme) private var appTheme
     
     var body: some View {
         HStack(spacing: 12) {
@@ -48,7 +49,6 @@ struct TopBarView: View {
             }
         }
         .frame(height: 60)
-        .background(Color(hex: "1a1a1a"))
+        .background(appTheme.chromeBackground)
     }
 }
-

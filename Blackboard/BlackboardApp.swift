@@ -36,6 +36,7 @@ struct BlackboardApp: App {
 
     @StateObject private var authManager = AuthenticationManager()
     @StateObject private var subscriptionManager = SubscriptionManager()
+    @StateObject private var themeManager = ThemeManager()
 
     var body: some Scene {
         WindowGroup {
@@ -43,10 +44,16 @@ struct BlackboardApp: App {
                 ContentView()
                     .environmentObject(authManager)
                     .environmentObject(subscriptionManager)
+                    .environmentObject(themeManager)
+                    .environment(\.appTheme, themeManager.currentTheme)
+                    .tint(themeManager.currentTheme.accentColor)
             } else {
                 LoginView()
                     .environmentObject(authManager)
                     .environmentObject(subscriptionManager)
+                    .environmentObject(themeManager)
+                    .environment(\.appTheme, themeManager.currentTheme)
+                    .tint(themeManager.currentTheme.accentColor)
             }
         }
         .modelContainer(sharedModelContainer)

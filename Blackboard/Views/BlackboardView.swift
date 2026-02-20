@@ -1,6 +1,7 @@
 import SwiftUI
 import PDFKit
 import UniformTypeIdentifiers
+import PhotosUI
 
 
 
@@ -11,6 +12,7 @@ struct BlackboardView: View {
     @EnvironmentObject var subscriptionManager: SubscriptionManager
     @EnvironmentObject var authManager: AuthenticationManager
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
+    @Environment(\.appTheme) private var appTheme
     
     init(note: NoteItem) {
         self.note = note
@@ -103,6 +105,11 @@ struct BlackboardView: View {
                 ))
             }
         }
+        .sheet(isPresented: $isShowingBoardScanner) {
+            MultiImagePicker(maxSelection: 10) { images in
+                performBoardScan(images: images)
+            }
+        }
         .onChange(of: isShowingDocumentPicker) { newValue in
             print("BlackboardView: isShowingDocumentPicker changed to \(newValue)")
         }
@@ -137,6 +144,7 @@ struct BlackboardView: View {
     @State private var showingSignOutAlert = false
     @State private var showingDeleteAccountAlert = false
     @State private var isAIProcessing = false
+    @State private var isShowingBoardScanner = false
 
     @State private var isPreparingInkjet = false
     @State private var inkjetPreWarmElements: [CanvasElementData] = []
@@ -395,15 +403,15 @@ struct BlackboardView: View {
                     // ----------------- STANDARD SELECTION -----------------
                     ZStack(alignment: .top) {
                         Rectangle()
-                            .fill(Color.blue.opacity(0.1))
-                            .border(Color.blue, width: 1)
+                            .fill(appTheme.accentColor.opacity(0.12))
+                            .border(appTheme.accentColor, width: 1)
                             .allowsHitTesting(false)
                         
                         // Resize Handle
                         Circle()
                             .fill(Color.white)
                             .frame(width: 12, height: 12)
-                            .overlay(Circle().stroke(Color.blue, lineWidth: 1))
+                            .overlay(Circle().stroke(appTheme.accentColor, lineWidth: 1))
                             .frame(width: 44, height: 44) // Increase touch target
                             .contentShape(Circle())
                             .position(x: box.width, y: box.height)
@@ -451,7 +459,7 @@ struct BlackboardView: View {
                                     }
                                     .font(.caption)
                                     .padding(6)
-                                    .background(Color.blue)
+                                    .background(appTheme.accentColor)
                                     .foregroundColor(.white)
                                     .cornerRadius(8)
                                     .shadow(radius: 2)
@@ -671,6 +679,13 @@ struct BlackboardView: View {
                             isShowingPaywall = true
                         }
                     },
+                    onScanBoard: {
+                        if subscriptionManager.currentTier.hasAIFeatures {
+                            isShowingBoardScanner = true
+                        } else {
+                            isShowingPaywall = true
+                        }
+                    },
                     onImportPDF: {
                         if subscriptionManager.currentTier.hasPDFImport {
                             print("ToolbarView: Import PDF tapped")
@@ -874,6 +889,10 @@ struct BlackboardView: View {
                         Spacer()
                         ChatView(contextToProcess: $chatContext) { command in
                             viewModel.addGraph(expression: command.expression, xMin: command.xMin, xMax: command.xMax)
+                        } onDismiss: {
+                            withAnimation {
+                                isShowingChat = false
+                            }
                         }
                         .padding(.bottom, 100)
                         .padding(.trailing, 20)
@@ -910,7 +929,7 @@ struct BlackboardView: View {
                         }
                         .font(.caption)
                         .padding(6)
-                        .background(quotaManager.canMakeRequest ? Color.purple : Color.orange)
+                        .background(quotaManager.canMakeRequest ? appTheme.accentColor : Color.orange)
                         .foregroundColor(.white)
                         .cornerRadius(6)
                     } else {
@@ -918,7 +937,11 @@ struct BlackboardView: View {
                         Text("Tier: \(subscriptionManager.currentTier.displayName)")
                             .font(.caption)
                             .padding(6)
-                            .background(subscriptionManager.currentTier == .pro ? Color.purple : (subscriptionManager.currentTier == .basic ? Color.blue : Color.gray))
+                            .background(
+                                subscriptionManager.currentTier == .pro
+                                ? appTheme.accentColor
+                                : (subscriptionManager.currentTier == .basic ? appTheme.accentSecondaryColor : Color.gray)
+                            )
                             .foregroundColor(.white)
                             .cornerRadius(6)
                     }
@@ -943,7 +966,7 @@ struct BlackboardView: View {
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
-                        .background(Color.purple.opacity(0.9))
+                        .background(appTheme.accentColor.opacity(0.9))
                         .foregroundColor(.white)
                         .cornerRadius(20)
                         .shadow(radius: 5)
@@ -962,7 +985,7 @@ struct BlackboardView: View {
     
     func performAIAction(mode: GeminiService.AIMode, box: CGRect) {
         // Check AI quota before proceeding
-        guard quotaManager.checkAndRecordUsage() else {
+        guard quotaManager.hasQuota(cost: 2) else {
             viewModel.addText("Daily AI limit reached (\(AIQuotaManager.dailyLimit) requests). Resets at midnight.", at: CGPoint(x: box.maxX + 20, y: box.minY))
             return
         }
@@ -998,7 +1021,9 @@ struct BlackboardView: View {
         
         Task {
             do {
-                let response = try await geminiService.sendSelectionContext(context, image: image, mode: mode)
+                let response = try await geminiService.streamSelectionContext(context, image: image, mode: mode) { _ in
+                    // Chunks accumulate on server side; canvas element added after completion
+                }
                 let (cleanText, graphCommand) = geminiService.parseResponse(response)
                 
                 await MainActor.run {
@@ -1034,12 +1059,57 @@ struct BlackboardView: View {
                     if let command = graphCommand {
                         viewModel.addGraph(expression: command.expression, xMin: command.xMin, xMax: command.xMax)
                     }
+                    
+                    if !cleanText.isEmpty || graphCommand != nil {
+                        quotaManager.recordUsage(cost: 2)
+                    }
                 }
             } catch {
                 await MainActor.run {
                     isAIProcessing = false
                 }
                 print("AI Error: \(error)")
+            }
+        }
+    }
+    
+    func performBoardScan(images: [UIImage]) {
+        guard !images.isEmpty else { return }
+        
+        // Check AI quota before proceeding
+        guard quotaManager.hasQuota(cost: 2) else {
+            let pageHeight = CanvasConstants.a4Height + CanvasViewModel.pageGap
+            let globalY = CGFloat(viewModel.currentPageIndex) * pageHeight + 100
+            viewModel.addText("Daily AI limit reached (\(AIQuotaManager.dailyLimit) requests). Resets at midnight.", at: CGPoint(x: 100, y: globalY))
+            return
+        }
+        
+        isAIProcessing = true
+        
+        Task {
+            do {
+                let response = try await geminiService.streamBoardScan(images: images) { _ in
+                    // Chunks accumulate; canvas element added after completion
+                }
+                
+                await MainActor.run {
+                    isAIProcessing = false
+                    
+                    if !response.isEmpty {
+                        let pageHeight = CanvasConstants.a4Height + CanvasViewModel.pageGap
+                        let globalY = CGFloat(viewModel.currentPageIndex) * pageHeight + 60
+                        let position = CGPoint(x: 60, y: globalY)
+                        
+                        viewModel.addAIResponseText(response, at: position)
+                        
+                        quotaManager.recordUsage(cost: 2)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isAIProcessing = false
+                }
+                print("Board Scan Error: \(error)")
             }
         }
     }
@@ -1140,4 +1210,59 @@ struct ImagePicker: UIViewControllerRepresentable {
         }
     }
     
+}
+
+struct MultiImagePicker: UIViewControllerRepresentable {
+    var maxSelection: Int = 10
+    var onImagesPicked: ([UIImage]) -> Void
+    @Environment(\.presentationMode) var presentationMode
+    
+    func makeUIViewController(context: Context) -> PHPickerViewController {
+        var config = PHPickerConfiguration()
+        config.selectionLimit = maxSelection
+        config.filter = .images
+        let picker = PHPickerViewController(configuration: config)
+        picker.delegate = context.coordinator
+        return picker
+    }
+    
+    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject, PHPickerViewControllerDelegate {
+        let parent: MultiImagePicker
+        
+        init(_ parent: MultiImagePicker) {
+            self.parent = parent
+        }
+        
+        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            parent.presentationMode.wrappedValue.dismiss()
+            
+            guard !results.isEmpty else { return }
+            
+            let group = DispatchGroup()
+            var images: [UIImage] = []
+            let lock = NSLock()
+            
+            for result in results {
+                group.enter()
+                result.itemProvider.loadObject(ofClass: UIImage.self) { object, error in
+                    defer { group.leave() }
+                    if let image = object as? UIImage {
+                        lock.lock()
+                        images.append(image)
+                        lock.unlock()
+                    }
+                }
+            }
+            
+            group.notify(queue: .main) {
+                self.parent.onImagesPicked(images)
+            }
+        }
+    }
 }

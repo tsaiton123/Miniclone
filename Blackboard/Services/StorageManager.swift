@@ -43,8 +43,14 @@ class StorageManager {
     
     func loadCanvas(id: UUID) throws -> CanvasData {
         let url = getFileURL(for: id)
-        guard cloudStorage.fileExists(at: url) else {
-            // Check local fallback for non-migrated files
+        
+        do {
+            let data = try cloudStorage.loadData(from: url)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return try decoder.decode(CanvasData.self, from: data)
+        } catch {
+            // Check local fallback for non-migrated files or if cloud load fails
             let localURL = getLocalDocumentsDirectory().appendingPathComponent("\(id.uuidString).json")
             if fileManager.fileExists(atPath: localURL.path) {
                 let data = try Data(contentsOf: localURL)
@@ -61,14 +67,9 @@ class StorageManager {
                 return canvas
             }
             
-            // Return empty canvas if file doesn't exist
+            // Return empty canvas if file doesn't exist anywhere
             return CanvasData(elements: [])
         }
-        
-        let data = try cloudStorage.loadData(from: url)
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(CanvasData.self, from: data)
     }
     
     func deleteCanvas(id: UUID) {

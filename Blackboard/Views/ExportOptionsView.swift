@@ -96,6 +96,7 @@ enum ExportScope: String, CaseIterable {
 
 struct ExportOptionsView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appTheme) private var appTheme
     @ObservedObject var viewModel: CanvasViewModel
     let noteTitle: String
     
@@ -239,8 +240,8 @@ struct ExportOptionsView: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .background(selectedFormat == format ? Color.blue : Color(UIColor.secondarySystemBackground))
-                        .foregroundColor(selectedFormat == format ? .white : .primary)
+                        .background(selectedFormat == format ? appTheme.accentColor : Color(UIColor.secondarySystemBackground))
+                        .foregroundColor(selectedFormat == format ? appTheme.textOnAccent : .primary)
                         .cornerRadius(10)
                     }
                 }
@@ -263,8 +264,8 @@ struct ExportOptionsView: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .background(selectedScope == scope ? Color.blue : Color(UIColor.secondarySystemBackground))
-                        .foregroundColor(selectedScope == scope ? .white : .primary)
+                        .background(selectedScope == scope ? appTheme.accentColor : Color(UIColor.secondarySystemBackground))
+                        .foregroundColor(selectedScope == scope ? appTheme.textOnAccent : .primary)
                         .cornerRadius(10)
                     }
                 }
@@ -284,7 +285,7 @@ struct ExportOptionsView: View {
             HStack {
                 if isExporting {
                     ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        .progressViewStyle(CircularProgressViewStyle(tint: appTheme.textOnAccent))
                 } else {
                     Image(systemName: "square.and.arrow.up")
                 }
@@ -292,8 +293,8 @@ struct ExportOptionsView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
-            .background(isExporting ? Color.gray : Color.blue)
-            .foregroundColor(.white)
+            .background(isExporting ? Color.gray : appTheme.accentColor)
+            .foregroundColor(appTheme.textOnAccent)
             .cornerRadius(12)
             .font(.headline)
         }

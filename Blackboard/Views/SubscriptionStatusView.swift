@@ -12,6 +12,7 @@ struct SubscriptionStatusView: View {
     @EnvironmentObject var subscriptionManager: SubscriptionManager
     @StateObject private var quotaManager = AIQuotaManager.shared
     @State private var showingPaywall = false
+    @Environment(\.appTheme) private var appTheme
     
     var body: some View {
         VStack(spacing: 16) {
@@ -68,7 +69,7 @@ struct SubscriptionStatusView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Image(systemName: "sparkles")
-                            .foregroundColor(.purple)
+                            .foregroundColor(appTheme.accentColor)
                         Text("Daily AI Quota")
                             .font(.subheadline)
                             .fontWeight(.medium)
@@ -88,7 +89,7 @@ struct SubscriptionStatusView: View {
                             RoundedRectangle(cornerRadius: 4)
                                 .fill(
                                     LinearGradient(
-                                        colors: quotaManager.usageProgress < 0.8 ? [.blue, .purple] : [.orange, .red],
+                                        colors: quotaManager.usageProgress < 0.8 ? appTheme.gradientColors : [.orange, .red],
                                         startPoint: .leading,
                                         endPoint: .trailing
                                     )
@@ -166,9 +167,9 @@ struct SubscriptionStatusView: View {
         case .free:
             return LinearGradient(colors: [.gray], startPoint: .top, endPoint: .bottom)
         case .basic:
-            return LinearGradient(colors: [.blue, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
+            return LinearGradient(colors: appTheme.gradientColors, startPoint: .topLeading, endPoint: .bottomTrailing)
         case .pro:
-            return LinearGradient(colors: [.purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+            return LinearGradient(colors: appTheme.gradientColors, startPoint: .topLeading, endPoint: .bottomTrailing)
         }
     }
     
@@ -213,9 +214,7 @@ struct SubscriptionStatusView: View {
             .padding()
             .background(
                 LinearGradient(
-                    colors: subscriptionManager.currentTier == .free
-                        ? [.blue, .cyan]
-                        : [.purple, .pink],
+                    colors: appTheme.gradientColors,
                     startPoint: .leading,
                     endPoint: .trailing
                 )

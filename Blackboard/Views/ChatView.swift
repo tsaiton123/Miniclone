@@ -8,15 +8,19 @@ struct ChatView: View {
     @State private var messageText = ""
     @State private var messages: [ChatMessage] = []
     @State private var isLoading = false
+    @State private var streamingMessageId: UUID? = nil
     
     @Binding var contextToProcess: String?
     
     var onPlotFunction: (GeminiService.GraphCommand) -> Void
+    var onDismiss: () -> Void
+    @Environment(\.appTheme) private var appTheme
     
     struct ChatMessage: Identifiable {
         let id = UUID()
-        let text: String
+        var text: String
         let isUser: Bool
+        var isStreaming: Bool = false
         let timestamp = Date()
     }
     
@@ -30,9 +34,15 @@ struct ChatView: View {
                 // Quota indicator
                 HStack(spacing: 4) {
                     Image(systemName: quotaManager.canMakeRequest ? "sparkles" : "exclamationmark.triangle.fill")
-                        .foregroundColor(quotaManager.canMakeRequest ? .blue : .orange)
+                        .foregroundColor(quotaManager.canMakeRequest ? appTheme.accentColor : .orange)
                     Text("\(quotaManager.remainingQuota)/\(AIQuotaManager.dailyLimit)")
                         .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 20))
                         .foregroundColor(.secondary)
                 }
             }
@@ -47,7 +57,7 @@ struct ChatView: View {
                             MessageBubble(message: message)
                         }
                         
-                        if isLoading {
+                        if isLoading && streamingMessageId == nil {
                             HStack {
                                 ProgressView()
                                     .padding(8)
@@ -61,11 +71,10 @@ struct ChatView: View {
                     .padding()
                 }
                 .onChange(of: messages.count) { _ in
-                    if let lastId = messages.last?.id {
-                        withAnimation {
-                            proxy.scrollTo(lastId, anchor: .bottom)
-                        }
-                    }
+                    scrollToBottom(proxy: proxy)
+                }
+                .onChange(of: messages.last?.text) { _ in
+                    scrollToBottom(proxy: proxy)
                 }
             }
             
@@ -78,7 +87,7 @@ struct ChatView: View {
                 Button(action: { sendMessage() }) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 30))
-                        .foregroundColor(quotaManager.canMakeRequest ? .blue : .gray)
+                        .foregroundColor(quotaManager.canMakeRequest ? appTheme.accentColor : .gray)
                 }
                 .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading || !quotaManager.canMakeRequest)
             }
@@ -93,6 +102,14 @@ struct ChatView: View {
             if let context = context {
                 sendMessage(context: context)
                 contextToProcess = nil
+            }
+        }
+    }
+    
+    private func scrollToBottom(proxy: ScrollViewProxy) {
+        if let lastId = messages.last?.id {
+            withAnimation {
+                proxy.scrollTo(lastId, anchor: .bottom)
             }
         }
     }
@@ -112,7 +129,7 @@ struct ChatView: View {
         guard !text.isEmpty else { return }
         
         // Check AI quota before proceeding
-        guard quotaManager.checkAndRecordUsage() else {
+        guard quotaManager.hasQuota(cost: 2) else {
             messages.append(ChatMessage(text: "Daily AI limit reached (\(AIQuotaManager.dailyLimit) requests). Your quota resets at midnight.", isUser: false))
             return
         }
@@ -122,43 +139,65 @@ struct ChatView: View {
             messages.append(userMessage)
             messageText = ""
         } else {
-            // For context messages, maybe show a system message or a summarized user message?
-            // Let's show it as a user message for now, but maybe truncated?
-            // Or just "Sent selection context"
             let userMessage = ChatMessage(text: "Analyzing selection...", isUser: true)
             messages.append(userMessage)
         }
         
         isLoading = true
         
+        // Create an empty AI message for streaming
+        var aiMessage = ChatMessage(text: "", isUser: false, isStreaming: true)
+        let aiMessageId = aiMessage.id
+        messages.append(aiMessage)
+        streamingMessageId = aiMessageId
+        
         Task {
             do {
-                let response: String
+                let fullResponse: String
+                
                 if isContextMessage {
-                    response = try await geminiService.sendSelectionContext(text, mode: .explain)
+                    fullResponse = try await geminiService.streamSelectionContext(text, mode: .explain) { chunk in
+                        // Append chunk to the streaming message
+                        if let index = messages.firstIndex(where: { $0.id == aiMessageId }) {
+                            messages[index].text += chunk
+                        }
+                    }
                 } else {
-                    response = try await geminiService.sendMessage(text)
+                    fullResponse = try await geminiService.streamMessage(text) { chunk in
+                        if let index = messages.firstIndex(where: { $0.id == aiMessageId }) {
+                            messages[index].text += chunk
+                        }
+                    }
                 }
                 
-                let (cleanText, graphCommand) = geminiService.parseResponse(response)
+                // Stream complete — finalize the message
+                let (cleanText, graphCommand) = geminiService.parseResponse(fullResponse)
                 
                 await MainActor.run {
-                    if !cleanText.isEmpty {
-                        let aiMessage = ChatMessage(text: cleanText, isUser: false)
-                        messages.append(aiMessage)
+                    // Update with parsed text (removes JSON blocks if any)
+                    if let index = messages.firstIndex(where: { $0.id == aiMessageId }) {
+                        messages[index].text = cleanText
+                        messages[index].isStreaming = false
                     }
                     
                     if let command = graphCommand {
                         onPlotFunction(command)
-                        // Optionally add a system message saying graph was plotted
                         messages.append(ChatMessage(text: "Plotting \(command.expression)...", isUser: false))
                     }
                     
+                    quotaManager.recordUsage(cost: 2)
+                    
+                    streamingMessageId = nil
                     isLoading = false
                 }
             } catch {
                 await MainActor.run {
-                    messages.append(ChatMessage(text: "Error: \(error.localizedDescription)", isUser: false))
+                    // Show error in the streaming message
+                    if let index = messages.firstIndex(where: { $0.id == aiMessageId }) {
+                        messages[index].text = "Error: \(error.localizedDescription)"
+                        messages[index].isStreaming = false
+                    }
+                    streamingMessageId = nil
                     isLoading = false
                 }
             }
@@ -168,6 +207,7 @@ struct ChatView: View {
 
 struct MessageBubble: View {
     let message: ChatView.ChatMessage
+    @Environment(\.appTheme) private var appTheme
     
     var body: some View {
         HStack {
@@ -175,17 +215,34 @@ struct MessageBubble: View {
                 Spacer()
                 Text(message.text)
                     .padding(10)
-                    .background(Color.blue)
+                    .background(appTheme.accentColor)
                     .foregroundColor(.white)
                     .cornerRadius(12)
-                    .font(.custom("Caveat-Regular", size: 20)) // Use handwriting font for user too? Or maybe just AI.
+                    .font(.custom("Caveat-Regular", size: 20))
             } else {
-                LaTeX(message.text)
-                    .padding(10)
-                    .background(Color(UIColor.secondarySystemBackground))
-                    .foregroundColor(.primary)
-                    .cornerRadius(12)
-                    .font(.custom("Caveat-Regular", size: 22)) // Handwriting for AI
+                VStack(alignment: .leading, spacing: 0) {
+                    if message.isStreaming {
+                        // During streaming, show raw text (avoids partial LaTeX parse flicker)
+                        Text(message.text)
+                            .font(.custom("Caveat-Regular", size: 22))
+                    } else {
+                        // After streaming completes, render with LaTeX
+                        LaTeX(message.text)
+                            .font(.custom("Caveat-Regular", size: 22))
+                    }
+                    
+                    if message.isStreaming {
+                        // Blinking cursor indicator
+                        Text("▊")
+                            .font(.system(size: 14))
+                            .foregroundColor(appTheme.accentColor)
+                            .opacity(0.8)
+                    }
+                }
+                .padding(10)
+                .background(Color(UIColor.secondarySystemBackground))
+                .foregroundColor(.primary)
+                .cornerRadius(12)
                 Spacer()
             }
         }

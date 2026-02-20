@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DashboardCardView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appTheme) private var appTheme
     
     let title: String
     let description: String
@@ -39,9 +40,10 @@ struct DashboardCardView: View {
                     Image(systemName: "arrow.right")
                 }
                 .padding()
-                .background(isDarkMode ? Color.blue : Color.white)
-                .foregroundColor(isDarkMode ? .white : .blue)
-                .border(isDarkMode ? Color.clear : Color.blue.opacity(0.3), width: 1)
+                .background(isDarkMode ? appTheme.accentColor : appTheme.accentColor.opacity(0.12))
+                .foregroundColor(isDarkMode ? appTheme.textOnAccent : appTheme.accentColor)
+                .border(isDarkMode ? Color.clear : appTheme.accentColor.opacity(0.3), width: 1)
+                .cornerRadius(10)
             }
             .frame(width: horizontalSizeClass == .compact ? 150 : 180)
             .padding(.bottom, 20)

@@ -34,6 +34,11 @@ class AIQuotaManager: ObservableObject {
         usedToday < Self.dailyLimit
     }
     
+    /// Check if user has enough quota for a specific cost
+    func hasQuota(cost: Int = 1) -> Bool {
+        remainingQuota >= cost
+    }
+    
     /// Progress percentage (0.0 to 1.0)
     var usageProgress: Double {
         Double(usedToday) / Double(Self.dailyLimit)
@@ -58,21 +63,21 @@ class AIQuotaManager: ObservableObject {
     // MARK: - Public Methods
     
     /// Record an AI request usage
-    func recordUsage() {
-        guard canMakeRequest else { return }
-        usedToday += 1
+    func recordUsage(cost: Int = 1) {
+        guard hasQuota(cost: cost) else { return }
+        usedToday += cost
         saveUsage()
         print("[AIQuotaManager] Recorded usage: \(usedToday)/\(Self.dailyLimit)")
     }
     
     /// Check if quota is available and record usage atomically
     /// Returns true if usage was recorded, false if quota exceeded
-    func checkAndRecordUsage() -> Bool {
-        guard canMakeRequest else {
+    func checkAndRecordUsage(cost: Int = 1) -> Bool {
+        guard hasQuota(cost: cost) else {
             print("[AIQuotaManager] Quota exceeded: \(usedToday)/\(Self.dailyLimit)")
             return false
         }
-        recordUsage()
+        recordUsage(cost: cost)
         return true
     }
     

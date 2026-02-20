@@ -87,12 +87,15 @@ class CloudStorageManager {
     /// Load data from file with proper file coordination
     func loadData(from url: URL) throws -> Data {
         if isCloudAvailable {
+            // Explicitly trigger download from iCloud in case it's not downloaded
+            try? fileManager.startDownloadingUbiquitousItem(at: url)
+            
             var coordinationError: NSError?
             var loadError: Error?
             var result: Data?
             
             let coordinator = NSFileCoordinator()
-            coordinator.coordinate(readingItemAt: url, options: [], error: &coordinationError) { coordinatedURL in
+            coordinator.coordinate(readingItemAt: url, options: .withoutChanges, error: &coordinationError) { coordinatedURL in
                 do {
                     result = try Data(contentsOf: coordinatedURL)
                 } catch {
@@ -158,6 +161,11 @@ class CloudStorageManager {
     
     /// Check if file exists at the given URL
     func fileExists(at url: URL) -> Bool {
+        if isCloudAvailable {
+            if (try? url.checkResourceIsReachable()) ?? false {
+                return true
+            }
+        }
         return fileManager.fileExists(atPath: url.path)
     }
     
