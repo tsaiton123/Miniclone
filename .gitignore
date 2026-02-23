@@ -1,4 +1,10 @@
-*.txt
 *.log
 *.DS_Store
+
+# ML Models (large binary files - download separately)
+*.mlpackage/
+*.mlmodel
+weight.bin
+MiniClone/Models/mobileclip_s1_image.mlpackage/
+MiniClone/Models/mobileclip_s1_text.mlpackage/
 
