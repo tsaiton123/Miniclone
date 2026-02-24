@@ -25,7 +25,6 @@ struct CanvasElementView: View {
                         .foregroundColor(Color(hex: data.color))
                         .scrollContentBackground(.hidden)
                         .background(Color.clear)
-                        .writingToolsBehavior(.complete)
                         .focused($isFocused)
                         .onAppear {
                             editedText = data.text
