@@ -32,6 +32,18 @@ struct TopBarView: View {
                         .foregroundColor(.white)
                 }
                 .padding(.trailing, 8)
+                
+                Divider()
+                    .background(Color.white.opacity(0.5))
+                    .frame(height: 20)
+                
+                Button(action: {
+                    NotificationCenter.default.post(name: NSNotification.Name("ShowSearchByDraw"), object: nil)
+                }) {
+                    Image(systemName: "scribble")
+                        .foregroundColor(.white)
+                }
+                .padding(.trailing, 8)
             }
             .frame(maxWidth: horizontalSizeClass == .compact ? .infinity : 300)
             .background(Color.white.opacity(0.1))

@@ -17,6 +17,32 @@ class DrawingCanvasView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
     
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        // If we shouldn't receive the touch (e.g., it's over an unselected image), let it pass through
+        guard let coordinator = coordinator else { return super.hitTest(point, with: event) }
+        
+        // Map location to canvas coordinates
+        let scale = coordinator.parent.viewModel.scale
+        let offset = coordinator.parent.viewModel.offset
+        let canvasLocation = CGPoint(
+            x: (point.x - offset.width) / scale,
+            y: (point.y - offset.height) / scale
+        )
+        
+        // If we're tapping an image that isn't selected, let the touch fall through to the native view
+        // so VisionKit can handle the text selection interactions.
+        if let targetId = coordinator.parent.viewModel.findElement(at: canvasLocation) {
+            if let element = coordinator.parent.viewModel.allElementsWithOffsets.first(where: { $0.id == targetId }),
+               case .image = element.data,
+               !coordinator.parent.viewModel.selectedElementIds.contains(targetId) {
+                // Return nil so direct touches fall through this view to the SwiftUI views below
+                return nil
+            }
+        }
+        
+        return super.hitTest(point, with: event)
+    }
+    
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let coordinator = coordinator else { return }
         
@@ -136,14 +162,17 @@ struct CanvasInputView: UIViewRepresentable {
         // Finger Pan (Scrolling / Selection) - NOT for pencil drawing anymore
         let fingerPan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleFingerPan(_:)))
         fingerPan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        fingerPan.delegate = context.coordinator
         view.addGestureRecognizer(fingerPan)
         
         // Pinch (Zoom)
         let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch(_:)))
+        pinch.delegate = context.coordinator
         view.addGestureRecognizer(pinch)
         
         // Tap (Clear Selection / Add Text)
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
+        tap.delegate = context.coordinator
         view.addGestureRecognizer(tap)
         
         context.coordinator.view = view
@@ -250,6 +279,35 @@ struct CanvasInputView: UIViewRepresentable {
             } else if parent.selectedTool == .select {
                 handleSelectionEnd()
             }
+        }
+        
+        // MARK: - UIGestureRecognizerDelegate
+        
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            // If the hand tool is active, always allow gestures (mainly for pinch/pan zooming)
+            if parent.selectedTool == .hand { return true }
+            
+            // Allow native Live Text interaction to handle the touch if tapping/panning over an unselected image
+            guard let view = view else { return true }
+            let location = touch.location(in: view)
+            
+            // Map location to canvas coordinates
+            let scale = parent.viewModel.scale
+            let offset = parent.viewModel.offset
+            let canvasLocation = CGPoint(
+                x: (location.x - offset.width) / scale,
+                y: (location.y - offset.height) / scale
+            )
+            
+            if let targetId = parent.viewModel.findElement(at: canvasLocation) {
+                // If it's an image and NOT currently selected, let the touch fall through to the VisionKit view
+                if let element = parent.viewModel.allElementsWithOffsets.first(where: { $0.id == targetId }),
+                   case .image = element.data,
+                   !parent.viewModel.selectedElementIds.contains(targetId) {
+                    return false
+                }
+            }
+            return true
         }
         
         // MARK: - Gesture Recognizer Handlers (for non-drawing gestures)

@@ -115,9 +115,16 @@ struct CanvasElementView: View {
 
             case .image(let data):
                 if let cachedImage = viewModel.imageCache[element.id] {
-                    Image(uiImage: cachedImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
+                    if #available(iOS 16.0, *) {
+                        AnalyzableImageView(image: cachedImage)
+                            .frame(width: element.width, height: element.height)
+                            .allowsHitTesting(!isSelected) // Allow interaction when not actively selecting/dragging the whole element
+                    } else {
+                        Image(uiImage: cachedImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: element.width, height: element.height)
+                    }
                 } else if let uiImage = UIImage(data: Data(base64Encoded: data.src) ?? Data()) {
                     // Fallback decoding if not in cache (though pre-loading should handle it)
                     Image(uiImage: uiImage)

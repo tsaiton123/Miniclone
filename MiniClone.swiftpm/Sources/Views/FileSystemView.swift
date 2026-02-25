@@ -85,7 +85,7 @@ struct FileSystemView: View {
     
     var body: some View {
         NavigationStack(path: $viewModel.navigationPath) {
-            DashboardLayout(searchText: $viewModel.searchText, selectedTab: $selectedTab, onSettings: {
+            DashboardLayout(searchText: $viewModel.searchText, selectedTab: $selectedTab, noteNames: Dictionary(uniqueKeysWithValues: allItems.filter { !$0.isFolder }.map { ($0.id.uuidString, $0.title) }), onSettings: {
                 activeSheet = .settings
             }) {
                 VStack {
@@ -247,8 +247,27 @@ struct FileSystemView: View {
             } message: {
                 Text("Enter a new name for \"\(itemToRename?.title ?? "")\"")
             }
-            // The settings sheet is now handled in the main switch above
-
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenNoteFromSearch"))) { notification in
+                print("[DEBUG-NAV] Received OpenNoteFromSearch notification")
+                print("[DEBUG-NAV] userInfo: \(notification.userInfo ?? [:])")
+                
+                guard let userInfo = notification.userInfo,
+                      let noteIdString = userInfo["noteId"] as? String,
+                      let noteId = UUID(uuidString: noteIdString),
+                      let pageIndex = userInfo["pageIndex"] as? Int else {
+                    print("[DEBUG-NAV] ⚠️ Failed to parse notification userInfo")
+                    return
+                }
+                
+                print("[DEBUG-NAV] Looking for note with id: \(noteIdString)")
+                guard let note = viewModel.findItem(by: noteId) else {
+                    print("[DEBUG-NAV] ⚠️ Note NOT FOUND in data store!")
+                    return
+                }
+                
+                print("[DEBUG-NAV] ✅ Found note '\(note.title)', navigating to page \(pageIndex)")
+                viewModel.navigationPath.append(NavigationTarget(note: note, pageIndex: pageIndex))
+            }
         }
     }
     

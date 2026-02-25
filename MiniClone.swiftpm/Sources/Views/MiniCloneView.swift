@@ -49,15 +49,27 @@ struct MiniCloneView: View {
                 let pages = viewModel.pages
                 let vm = viewModel
                 let noteTitle = note.title
+                let localTheme = appTheme
+                
+                print("[DEBUG-INDEX] onDisappear fired for note \(noteTitle) (\(noteId.prefix(8))…)")
+                print("[DEBUG-INDEX] Total pages: \(pages.count)")
                 
                 Task { @MainActor in
-                    // Reset stale index for this note before reindexing all pages
+                    print("[DEBUG-INDEX] Task started for note \(noteId.prefix(8))…")
+                    
+                    // Reset stale index for this note before reindexing
                     HandwritingIndexService.shared.reset(pageId: noteId)
+                    ImageMatchingService.shared.reset(pageId: noteId)
+                    print("[DEBUG-INDEX] Reset old indices for note \(noteId.prefix(8))…")
                     
                     for (pageIndex, page) in pages.enumerated() {
-                        guard !page.elements.isEmpty else { continue }
+                        print("[DEBUG-INDEX] Page \(pageIndex): \(page.elements.count) element(s)")
+                        guard !page.elements.isEmpty else {
+                            print("[DEBUG-INDEX] Skipping page \(pageIndex) - no elements")
+                            continue
+                        }
                         
-                        // Render this page to a UIImage for Vision OCR
+                        // --- Full page render for OCR ---
                         let pageView = ZStack(alignment: .topLeading) {
                             Rectangle()
                                 .fill(Color.white)
@@ -67,18 +79,76 @@ struct MiniCloneView: View {
                             }
                         }
                         .frame(width: CanvasConstants.a4Width, height: CanvasConstants.a4Height)
+                        .environment(\.appTheme, localTheme)
                         
-                        let renderer = ImageRenderer(content: pageView)
-                        renderer.scale = 1.5
+                        let pageRenderer = ImageRenderer(content: pageView)
+                        pageRenderer.scale = 1.5
                         
-                        if let image = renderer.uiImage {
+                        if let pageImage = pageRenderer.uiImage {
                             let pageId = "\(noteId)_\(pageIndex)"
-                            await HandwritingIndexService.shared.index(image: image, pageId: pageId, title: noteTitle)
-                        } else {
-                            print("MiniCloneView: failed to render page \(pageIndex)")
+                            await HandwritingIndexService.shared.index(image: pageImage, pageId: pageId, title: noteTitle)
+                            print("[DEBUG-INDEX] OCR index done for full page \(pageId)")
+                        }
+                        
+                        // --- Spatial proximity clustering for image matching ---
+                        let clusters = Self.clusterElements(page.elements, proximityThreshold: 50)
+                        print("[DEBUG-INDEX] Found \(clusters.count) spatial cluster(s) on page \(pageIndex)")
+                        
+                        for (clusterIndex, cluster) in clusters.enumerated() {
+                            // Compute the bounding box of this cluster
+                            let minX = cluster.map { $0.x }.min()!
+                            let minY = cluster.map { $0.y }.min()!
+                            let maxX = cluster.map { $0.x + $0.width }.max()!
+                            let maxY = cluster.map { $0.y + $0.height }.max()!
+                            
+                            let clusterWidth = maxX - minX
+                            let clusterHeight = maxY - minY
+                            
+                            // Skip very tiny clusters (< 10px)
+                            guard clusterWidth > 10 && clusterHeight > 10 else { continue }
+                            
+                            // Add padding around the cluster
+                            let pad: CGFloat = 20
+                            let renderWidth = clusterWidth + 2 * pad
+                            let renderHeight = clusterHeight + 2 * pad
+                            
+                            // Render just this cluster's elements, offset to fill the view
+                            let clusterView = ZStack(alignment: .topLeading) {
+                                Rectangle()
+                                    .fill(Color.white)
+                                    .frame(width: renderWidth, height: renderHeight)
+                                ForEach(cluster) { element in
+                                    // Create a copy with adjusted position
+                                    let adjusted = CanvasElementData(
+                                        id: element.id,
+                                        type: element.type,
+                                        x: element.x - minX + pad,
+                                        y: element.y - minY + pad,
+                                        width: element.width,
+                                        height: element.height,
+                                        zIndex: element.zIndex,
+                                        data: element.data
+                                    )
+                                    CanvasElementView(element: adjusted, viewModel: vm, isSelected: false, onDelete: {})
+                                }
+                            }
+                            .frame(width: renderWidth, height: renderHeight)
+                            .environment(\.appTheme, localTheme)
+                            
+                            let clusterRenderer = ImageRenderer(content: clusterView)
+                            clusterRenderer.scale = 2.0
+                            
+                            if let clusterImage = clusterRenderer.uiImage {
+                                let clusterId = "\(noteId)_\(pageIndex)_\(clusterIndex)"
+                                print("[DEBUG-INDEX] Rendered cluster \(clusterIndex) (\(cluster.count) elements): \(clusterImage.size.width)x\(clusterImage.size.height)")
+                                await ImageMatchingService.shared.index(image: clusterImage, pageId: clusterId)
+                                print("[DEBUG-INDEX] ✅ Indexed cluster \(clusterId)")
+                            } else {
+                                print("[DEBUG-INDEX] ⚠️ FAILED to render cluster \(clusterIndex)")
+                            }
                         }
                     }
-                    print("MiniCloneView: finished OCR indexing \(pages.count) page(s) for note \(noteId.prefix(8))…")
+                    print("[DEBUG-INDEX] ✅ Finished indexing note \(noteId.prefix(8))…")
                 }
             }
         }
@@ -125,19 +195,55 @@ struct MiniCloneView: View {
         }
         .sheet(isPresented: $isShowingImagePicker) {
             ImagePicker { image in
-                let pageHeight = CanvasConstants.a4Height + CanvasViewModel.pageGap
-                let globalY = CGFloat(viewModel.currentPageIndex) * pageHeight + 100
-                
-                viewModel.addElement(CanvasElementData(
-                    id: UUID(),
-                    type: .image,
-                    x: 100,
-                    y: globalY,
-                    width: 200,
-                    height: 200 * (image.size.height / image.size.width),
-                    zIndex: viewModel.elements.count,
-                    data: .image(ImageData(src: image.pngData()?.base64EncodedString() ?? "", originalWidth: image.size.width, originalHeight: image.size.height))
-                ))
+                previewImage = image
+            }
+        }
+        .onChange(of: isShowingImagePicker) { newValue in
+            // When the picker dismisses (newValue is false) and an image was picked
+            if !newValue && previewImage != nil {
+                // Give SwiftUI a moment to complete the sheet dismissal animation
+                // before presenting the full screen cover, avoiding a presentation collision
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    isShowingImagePreview = true
+                }
+            }
+        }
+        .fullScreenCover(isPresented: $isShowingImagePreview) {
+            if let img = previewImage {
+                ImagePreviewView(
+                    image: img,
+                    onCancel: {
+                        isShowingImagePreview = false
+                        previewImage = nil
+                    },
+                    onInsertImage: {
+                        let pageHeight = CanvasConstants.a4Height + CanvasViewModel.pageGap
+                        let globalY = CGFloat(viewModel.currentPageIndex) * pageHeight + 100
+                        
+                        viewModel.addElement(CanvasElementData(
+                            id: UUID(),
+                            type: .image,
+                            x: 100,
+                            y: globalY,
+                            width: 200,
+                            height: 200 * (img.size.height / img.size.width),
+                            zIndex: viewModel.elements.count,
+                            data: .image(ImageData(src: img.pngData()?.base64EncodedString() ?? "", originalWidth: img.size.width, originalHeight: img.size.height))
+                        ))
+                        
+                        isShowingImagePreview = false
+                        previewImage = nil
+                    },
+                    onInsertText: { text in
+                        let pageHeight = CanvasConstants.a4Height + CanvasViewModel.pageGap
+                        let globalY = CGFloat(viewModel.currentPageIndex) * pageHeight + 100
+                        
+                        viewModel.addText(text, at: CGPoint(x: 100, y: globalY))
+                        
+                        isShowingImagePreview = false
+                        previewImage = nil
+                    }
+                )
             }
         }
         .onChange(of: isShowingDocumentPicker) { newValue in
@@ -161,6 +267,8 @@ struct MiniCloneView: View {
     @State private var isShowingDocumentPicker = false
     @State private var isShowingImagePicker = false
     @State private var selectedPDFDocument: PDFDocument?
+    @State private var previewImage: UIImage? = nil
+    @State private var isShowingImagePreview = false
     @State private var isMovingSelection = false
     @State private var isResizingSelection = false
     @State private var isShowingChat = false
@@ -989,3 +1097,64 @@ struct MultiImagePicker: UIViewControllerRepresentable {
         }
     }
 }
+
+// MARK: - Spatial Clustering for Search Indexing
+extension MiniCloneView {
+    /// Groups elements into clusters based on spatial proximity.
+    /// Elements whose bounding boxes (expanded by `proximityThreshold`) overlap
+    /// are placed in the same cluster.
+    static func clusterElements(_ elements: [CanvasElementData], proximityThreshold: CGFloat) -> [[CanvasElementData]] {
+        guard !elements.isEmpty else { return [] }
+        
+        // Union-Find data structure
+        var parent = Array(0..<elements.count)
+        
+        func find(_ i: Int) -> Int {
+            var i = i
+            while parent[i] != i {
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            }
+            return i
+        }
+        
+        func union(_ a: Int, _ b: Int) {
+            let ra = find(a)
+            let rb = find(b)
+            if ra != rb {
+                parent[ra] = rb
+            }
+        }
+        
+        // Check all pairs of elements for proximity
+        for i in 0..<elements.count {
+            for j in (i + 1)..<elements.count {
+                let a = elements[i]
+                let b = elements[j]
+                
+                // Expand bounding box A by threshold
+                let aRect = CGRect(
+                    x: a.x - proximityThreshold,
+                    y: a.y - proximityThreshold,
+                    width: a.width + 2 * proximityThreshold,
+                    height: a.height + 2 * proximityThreshold
+                )
+                let bRect = CGRect(x: b.x, y: b.y, width: b.width, height: b.height)
+                
+                if aRect.intersects(bRect) {
+                    union(i, j)
+                }
+            }
+        }
+        
+        // Group elements by their root parent
+        var groups: [Int: [CanvasElementData]] = [:]
+        for i in 0..<elements.count {
+            let root = find(i)
+            groups[root, default: []].append(elements[i])
+        }
+        
+        return Array(groups.values)
+    }
+}
+

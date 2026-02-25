@@ -4,14 +4,17 @@ struct DashboardLayout<Content: View>: View {
     @Binding var searchText: String
     @Binding var selectedTab: Int
     var onSettings: () -> Void = {}
+    var noteNames: [String: String] = [:]
     let content: Content
     
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @Environment(\.appTheme) private var appTheme
+    @State private var isShowingSearchByDraw = false
     
-    init(searchText: Binding<String>, selectedTab: Binding<Int>, onSettings: @escaping () -> Void = {}, @ViewBuilder content: () -> Content) {
+    init(searchText: Binding<String>, selectedTab: Binding<Int>, noteNames: [String: String] = [:], onSettings: @escaping () -> Void = {}, @ViewBuilder content: () -> Content) {
         self._searchText = searchText
         self._selectedTab = selectedTab
+        self.noteNames = noteNames
         self.onSettings = onSettings
         self.content = content()
     }
@@ -57,6 +60,24 @@ struct DashboardLayout<Content: View>: View {
             }
         }
         .background(appTheme.chromeBackground)
+        .sheet(isPresented: $isShowingSearchByDraw) {
+            SearchByDrawView(
+                noteNames: noteNames,
+                onNavigate: { noteId, pageIndex in
+                    print("[DEBUG-DASHBOARD] onNavigate called: noteId=\(noteId), pageIndex=\(pageIndex)")
+                    isShowingSearchByDraw = false
+                    // Post notification to FileSystemView to handle navigation
+                    NotificationCenter.default.post(
+                        name: NSNotification.Name("OpenNoteFromSearch"),
+                        object: nil,
+                        userInfo: ["noteId": noteId, "pageIndex": pageIndex]
+                    )
+                }
+            )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ShowSearchByDraw"))) { _ in
+            isShowingSearchByDraw = true
+        }
     }
 }
 
