@@ -1,5 +1,4 @@
 import SwiftUI
-import AuthenticationServices
 
 struct LoginView: View {
     @EnvironmentObject var authManager: AuthenticationManager
@@ -26,26 +25,17 @@ struct LoginView: View {
                     .foregroundColor(.secondary)
                     .tracking(0.3)
                 
-                SignInWithAppleButton(
-                    onRequest: { request in
-                        request.requestedScopes = [.fullName, .email]
-                    },
-                    onCompletion: { result in
-                        authManager.handleSignIn(result: result)
-                    }
-                )
-                .signInWithAppleButtonStyle(.black)
-                .frame(width: 260, height: 44)
-                .padding(.top, 20)
-                
                 Button(action: {
                     authManager.signInAsGuest()
                 }) {
-                    Text("Continue as Guest")
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundColor(.secondary)
+                    Text("Sign in as Guest")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.white)
+                        .frame(width: 260, height: 44)
+                        .background(appTheme.accentColor)
+                        .cornerRadius(8)
                 }
-                .padding(.top, 8)
+                .padding(.top, 20)
             }
         }
     }

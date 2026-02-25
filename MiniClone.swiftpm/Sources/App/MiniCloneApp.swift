@@ -39,19 +39,18 @@ struct MiniCloneApp: App {
 
     var body: some Scene {
         WindowGroup {
-            if authManager.isAuthenticated {
-                ContentView()
-                    .environmentObject(authManager)
-                    .environmentObject(themeManager)
-                    .environment(\.appTheme, themeManager.currentTheme)
-                    .tint(themeManager.currentTheme.accentColor)
-            } else {
-                LoginView()
-                    .environmentObject(authManager)
-                    .environmentObject(themeManager)
-                    .environment(\.appTheme, themeManager.currentTheme)
-                    .tint(themeManager.currentTheme.accentColor)
+            Group {
+                if authManager.isAuthenticated {
+                    ContentView()
+                } else {
+                    LoginView()
+                }
             }
+            .environmentObject(authManager)
+            .environmentObject(themeManager)
+            .environment(\.appTheme, themeManager.currentTheme)
+            .tint(themeManager.currentTheme.accentColor)
+            .preferredColorScheme(.light)
         }
         .modelContainer(sharedModelContainer)
     }

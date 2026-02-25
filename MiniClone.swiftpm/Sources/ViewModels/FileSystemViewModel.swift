@@ -47,8 +47,29 @@ final class FileSystemViewModel: ObservableObject {
     }
     
     func deleteItem(_ item: NoteItem) {
+        // Clear search indices
+        clearIndices(for: item)
+        // Delete item from context
         modelContext.delete(item)
         save()
+    }
+    
+    private func clearIndices(for item: NoteItem) {
+        if item.isFolder {
+            // Recursively clear children
+            if let children = item.children {
+                for child in children {
+                    clearIndices(for: child)
+                }
+            }
+        } else {
+            // Note: clear handwriting and image matching indices
+            let noteId = item.id.uuidString
+            Task {
+                HandwritingIndexService.shared.reset(pageId: noteId)
+                ImageMatchingService.shared.reset(pageId: noteId)
+            }
+        }
     }
     
     func renameItem(_ item: NoteItem, newTitle: String) {
