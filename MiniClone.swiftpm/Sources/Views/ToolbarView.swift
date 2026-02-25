@@ -97,8 +97,8 @@ struct ToolbarView: View {
             }
         }
         .background(Color(UIColor.secondarySystemBackground))
-        .cornerRadius(12)
-        .shadow(radius: 5)
+        .cornerRadius(4)
+        .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
         .padding(.horizontal, horizontalSizeClass == .compact ? 8 : 0)
     }
     

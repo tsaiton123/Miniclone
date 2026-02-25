@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MiniClone — Tactile Skeuomorphic</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600&family=Source+Serif+4:ital,wght@0,300;0,400;0,600;1,400&family=Inter:wght@400;500&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --cream: #F4F0E8;
+            --paper: #FDFCF9;
+            --leather: #5C3D2E;
+            --leather-light: #8B6F5E;
+            --ink: #2C2419;
+            --ink-light: #7A7062;
+            --red-ink: #B8372D;
+            --blue-ink: #2B5EA7;
+            --pencil: #6B6560;
+            --tape-yellow: #F5E6A3;
+            --tape-green: #B8D4A3;
+            --ring-metal: #C4BAA8;
+            --serif: 'Source Serif 4', Georgia, serif;
+            --hand: 'Caveat', cursive;
+            --sans: 'Inter', sans-serif;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: var(--cream);
+            color: var(--ink);
+            font-family: var(--serif);
+            min-height: 100vh;
+            /* subtle paper texture via noise */
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='256' height='256' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+        }
+
+        .shell {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* SIDEBAR — stitched notebook edge */
+        .sidebar {
+            width: 72px;
+            background: linear-gradient(135deg, #D4C8B6 0%, #C4BAA8 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 24px 0;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            border-right: 3px double var(--leather-light);
+            box-shadow: inset -8px 0 16px rgba(0, 0, 0, .06);
+        }
+
+        /* Spiral rings */
+        .sidebar::before {
+            content: '';
+            position: absolute;
+            right: -8px;
+            top: 0;
+            bottom: 0;
+            width: 16px;
+            background:
+                repeating-linear-gradient(to bottom,
+                    transparent 0px, transparent 28px,
+                    var(--ring-metal) 28px, var(--ring-metal) 34px,
+                    transparent 34px, transparent 40px);
+            border-radius: 0 4px 4px 0;
+        }
+
+        .sidebar .logo {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--leather);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--tape-yellow);
+            font-family: var(--hand);
+            font-size: 22px;
+            font-weight: 600;
+            margin-bottom: 36px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, .2), inset 0 1px 0 rgba(255, 255, 255, .15);
+        }
+
+        .sidebar nav {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            flex: 1;
+        }
+
+        .sidebar nav button {
+            width: 42px;
+            height: 42px;
+            border: none;
+            background: transparent;
+            border-radius: 10px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--leather);
+            transition: all .2s;
+        }
+
+        .sidebar nav button.active {
+            background: rgba(255, 255, 255, .45);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, .1);
+        }
+
+        .sidebar nav button svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        /* MAIN */
+        .main {
+            flex: 1;
+            padding: 48px 56px;
+            max-width: 1100px;
+        }
+
+        /* TOP */
+        .top-meta {
+            font-family: var(--hand);
+            font-size: 18px;
+            color: var(--ink-light);
+            margin-bottom: 8px;
+        }
+
+        .hero {
+            display: flex;
+            align-items: flex-start;
+            gap: 24px;
+            margin-bottom: 44px;
+        }
+
+        .hero h1 {
+            font-family: var(--serif);
+            font-size: 42px;
+            font-weight: 300;
+            line-height: 1.15;
+            font-style: italic;
+        }
+
+        .hero h1 strong {
+            font-weight: 600;
+            font-style: normal;
+            color: var(--leather);
+        }
+
+        /* TAPE TABS */
+        .tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 32px;
+        }
+
+        .tab {
+            font-family: var(--hand);
+            font-size: 18px;
+            padding: 8px 24px 6px;
+            background: var(--tape-yellow);
+            border: none;
+            cursor: pointer;
+            transform: rotate(-1deg);
+            transform-origin: bottom left;
+            box-shadow: 1px 2px 4px rgba(0, 0, 0, .08);
+            color: var(--ink);
+            position: relative;
+            z-index: 1;
+            transition: transform .2s;
+        }
+
+        .tab:nth-child(2) {
+            background: var(--tape-green);
+            transform: rotate(0.5deg);
+            margin-left: -8px;
+        }
+
+        .tab:nth-child(3) {
+            background: #D4C4E8;
+            transform: rotate(-0.5deg);
+            margin-left: -8px;
+        }
+
+        .tab.active {
+            transform: rotate(0deg) translateY(-3px);
+            box-shadow: 1px 4px 8px rgba(0, 0, 0, .12);
+            z-index: 2;
+        }
+
+        .tab:hover {
+            transform: translateY(-2px);
+        }
+
+        /* NOTEBOOK CARDS */
+        .card-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+
+        .nb-card {
+            background: var(--paper);
+            border: 1px solid #E0D8CC;
+            border-radius: 2px;
+            padding: 28px 28px 20px;
+            position: relative;
+            overflow: hidden;
+            transition: box-shadow .25s, transform .25s;
+            /* rule lines */
+            background-image:
+                repeating-linear-gradient(to bottom, transparent 0px, transparent 27px, #E8E2D8 27px, #E8E2D8 28px);
+            background-position: 0 26px;
+            box-shadow: 2px 3px 8px rgba(0, 0, 0, .06);
+        }
+
+        .nb-card:hover {
+            box-shadow: 3px 6px 20px rgba(0, 0, 0, .1);
+            transform: translateY(-2px);
+        }
+
+        /* red margin line */
+        .nb-card::before {
+            content: '';
+            position: absolute;
+            left: 60px;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            background: var(--red-ink);
+            opacity: .18;
+        }
+
+        .nb-card .pin {
+            position: absolute;
+            top: -4px;
+            right: 20px;
+            width: 24px;
+            height: 24px;
+            background: var(--red-ink);
+            border-radius: 50%;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, .2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .nb-card .pin::after {
+            content: '';
+            width: 6px;
+            height: 6px;
+            background: rgba(255, 255, 255, .5);
+            border-radius: 50%;
+        }
+
+        .nb-card .type {
+            font-family: var(--sans);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: .12em;
+            color: var(--ink-light);
+            margin-bottom: 12px;
+            font-weight: 500;
+        }
+
+        .nb-card h3 {
+            font-family: var(--hand);
+            font-size: 28px;
+            color: var(--blue-ink);
+            line-height: 1.2;
+            margin-bottom: 8px;
+        }
+
+        .nb-card p {
+            font-family: var(--serif);
+            font-size: 14px;
+            color: var(--ink-light);
+            line-height: 1.7;
+            font-style: italic;
+        }
+
+        .nb-card .date {
+            font-family: var(--hand);
+            font-size: 15px;
+            color: var(--pencil);
+            margin-top: 16px;
+        }
+
+        .nb-card .sketch-area {
+            margin-top: 16px;
+            width: 100%;
+            height: 100px;
+            position: relative;
+        }
+
+        .nb-card .sketch-area svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .nb-card .action-tape {
+            display: inline-block;
+            margin-top: 16px;
+            font-family: var(--hand);
+            font-size: 16px;
+            padding: 6px 18px;
+            background: var(--tape-yellow);
+            border: none;
+            cursor: pointer;
+            color: var(--ink);
+            transform: rotate(-0.5deg);
+            box-shadow: 1px 2px 4px rgba(0, 0, 0, .06);
+            transition: transform .15s;
+        }
+
+        .nb-card .action-tape:hover {
+            transform: rotate(0deg) translateY(-1px);
+        }
+
+        .nb-card.folder {
+            background: var(--cream);
+            border: 2px dashed #D0C8B8;
+            background-image: none;
+        }
+
+        .nb-card.folder::before {
+            display: none;
+        }
+
+        .nb-card.folder h3 {
+            color: var(--leather);
+        }
+
+        /* FLOATING TOOLBAR */
+        .toolbar-float {
+            position: fixed;
+            bottom: 28px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(180deg, #6B5344 0%, var(--leather) 100%);
+            border-radius: 16px;
+            padding: 10px 18px;
+            display: flex;
+            gap: 4px;
+            box-shadow: 0 6px 24px rgba(0, 0, 0, .25), inset 0 1px 0 rgba(255, 255, 255, .12);
+        }
+
+        .toolbar-float button {
+            width: 40px;
+            height: 40px;
+            border: none;
+            border-radius: 10px;
+            background: transparent;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255, 255, 255, .6);
+            transition: all .15s;
+        }
+
+        .toolbar-float button.active {
+            background: rgba(255, 255, 255, .15);
+            color: var(--tape-yellow);
+        }
+
+        .toolbar-float button:hover:not(.active) {
+            color: rgba(255, 255, 255, .9);
+        }
+
+        .toolbar-float button svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        .toolbar-float .div {
+            width: 1px;
+            background: rgba(255, 255, 255, .12);
+            margin: 6px 8px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="shell">
+        <aside class="sidebar">
+            <div class="logo">M</div>
+            <nav>
+                <button class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                        <rect x="3" y="3" width="7" height="7" rx="1" />
+                        <rect x="14" y="3" width="7" height="7" rx="1" />
+                        <rect x="3" y="14" width="7" height="7" rx="1" />
+                        <rect x="14" y="14" width="7" height="7" rx="1" />
+                    </svg></button>
+                <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    </svg></button>
+                <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                        <circle cx="11" cy="11" r="8" />
+                        <path d="M21 21l-4.35-4.35" />
+                    </svg></button>
+            </nav>
+        </aside>
+
+        <main class="main">
+            <div class="top-meta">Monday, Feb 24 — good evening ✎</div>
+            <div class="hero">
+                <h1><strong>My Notebook</strong><br>a place for ideas</h1>
+            </div>
+
+            <div class="tabs">
+                <button class="tab active">All Notes</button>
+                <button class="tab">Favorites</button>
+                <button class="tab">Recent</button>
+            </div>
+
+            <div class="card-grid">
+                <div class="nb-card">
+                    <div class="pin"></div>
+                    <div class="type">Note · Pinned</div>
+                    <h3>Organic Chemistry Lecture</h3>
+                    <p>Functional groups and reaction mechanisms from the Feb 20 lecture…</p>
+                    <div class="sketch-area">
+                        <svg viewBox="0 0 320 100" fill="none">
+                            <path d="M10 30 Q40 10 80 28 T160 22 T240 35 T310 25" stroke="#2B5EA7" stroke-width="2"
+                                stroke-linecap="round" opacity=".5" />
+                            <path d="M10 55 Q60 40 120 52 T220 48 T300 55" stroke="#2C2419" stroke-width="1.5"
+                                stroke-linecap="round" opacity=".3" />
+                            <path d="M10 78 Q80 65 150 72 T280 70" stroke="#2C2419" stroke-width="1.2"
+                                stroke-linecap="round" opacity=".2" />
+                            <circle cx="260" cy="50" r="20" stroke="#B8372D" stroke-width="1.5" fill="none" opacity=".2"
+                                stroke-dasharray="3 3" />
+                        </svg>
+                    </div>
+                    <button class="action-tape">Open →</button>
+                </div>
+
+                <div class="nb-card folder">
+                    <div class="type">Folder · 8 items</div>
+                    <h3>📁 Physics 201</h3>
+                    <p>Problem sets, lecture notes, and lab reports from Mechanics & Waves.</p>
+                    <div class="date">Last opened: 2 days ago</div>
+                    <button class="action-tape" style="background:var(--tape-green)">Browse →</button>
+                </div>
+
+                <div class="nb-card">
+                    <div class="type">Note · Today</div>
+                    <h3>Linear Algebra Cheat Sheet</h3>
+                    <p>Quick reference: matrix ops, eigenvalues, determinants, and transformations.</p>
+                    <div class="sketch-area">
+                        <svg viewBox="0 0 320 100" fill="none">
+                            <rect x="20" y="15" width="60" height="40" stroke="#2C2419" stroke-width="1.2" fill="none"
+                                opacity=".2" rx="1" />
+                            <rect x="25" y="20" width="20" height="12" fill="#2B5EA7" opacity=".08" />
+                            <rect x="50" y="20" width="20" height="12" fill="#2B5EA7" opacity=".08" />
+                            <path d="M120 20 Q160 10 200 25 T280 18" stroke="#6B6560" stroke-width="1.2"
+                                stroke-linecap="round" opacity=".3" />
+                            <path d="M120 45 Q170 38 220 42 T300 40" stroke="#6B6560" stroke-width="1"
+                                stroke-linecap="round" opacity=".2" />
+                            <path d="M120 65 Q180 58 250 62" stroke="#6B6560" stroke-width="1" stroke-linecap="round"
+                                opacity=".15" />
+                        </svg>
+                    </div>
+                    <button class="action-tape">Open →</button>
+                </div>
+
+                <div class="nb-card">
+                    <div class="type">Note · Yesterday</div>
+                    <h3>Cognitive Science — Memory Models</h3>
+                    <p>Working memory, long-term encoding, and Baddeley's multicomponent model.</p>
+                    <div class="date">3 pages</div>
+                    <button class="action-tape">Open →</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div class="toolbar-float">
+        <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" />
+            </svg></button>
+        <button class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M12 19l7-7 3 3-7 7-3-3z" />
+                <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" />
+            </svg></button>
+        <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M20 14.66V20a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2h5.34" />
+                <polygon points="18 2 22 6 12 16 8 16 8 12 18 2" />
+            </svg></button>
+        <div class="div"></div>
+        <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M1 4v6h6M23 20v-6h-6" />
+                <path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15" />
+            </svg></button>
+        <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6l-2 14H7L5 6" />
+                <path d="M10 11v6M14 11v6" />
+            </svg></button>
+    </div>
+</body>
+
+</html>

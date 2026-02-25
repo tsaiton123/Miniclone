@@ -12,13 +12,16 @@ struct SearchByDrawView: View {
     @State private var noMatchesFound = false
     
     /// Similarity threshold — results with distance above this are filtered out.
-    /// Distance is 0-1: 0 = identical, 1 = completely different.
     private let distanceThreshold: Float = 1.0
     
     /// Note title lookup: noteId UUID string -> title
     var noteNames: [String: String]
-    /// Called when the user taps a result to navigate
-    var onNavigate: (String, Int) -> Void
+    /// Pre-populated results (used when re-opening after viewing a note)
+    var initialResults: [DrawSearchResult]
+    /// Binding to share results with parent so they can be cached
+    @Binding var sharedResults: [DrawSearchResult]
+    /// Called when a result is tapped — caller handles navigation
+    var onSelectResult: (String, Int) -> Void
     
     struct DrawSearchResult: Identifiable {
         let id = UUID()
@@ -32,26 +35,39 @@ struct SearchByDrawView: View {
         NavigationView {
             VStack(spacing: 0) {
                 if hasSearched {
-                    // Results View
                     resultsView
                 } else {
-                    // Drawing View
                     drawingView
                 }
             }
             .navigationTitle(hasSearched ? "Results" : "Search by Draw")
-            .navigationBarItems(
-                leading: hasSearched ? Button("Back") {
-                    hasSearched = false
-                    noMatchesFound = false
-                    searchResults = []
-                    isSearching = false
-                } : nil,
-                trailing: Button("Cancel") {
-                    presentationMode.wrappedValue.dismiss()
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    if hasSearched {
+                        Button("Back") {
+                            hasSearched = false
+                            noMatchesFound = false
+                            searchResults = []
+                            isSearching = false
+                        }
+                    }
                 }
-            )
-            .background(Color(UIColor.systemGroupedBackground))
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Cancel") {
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                }
+            }
+            .background(appTheme.editorialBackground)
+        }
+        .onAppear {
+            // If we have cached results (re-opened after viewing a note), show them immediately
+            if !initialResults.isEmpty {
+                searchResults = initialResults
+                hasSearched = true
+                noMatchesFound = false
+            }
         }
     }
     
@@ -59,33 +75,41 @@ struct SearchByDrawView: View {
     
     private var drawingView: some View {
         VStack(spacing: 0) {
-            Text("Draw what you're looking for")
-                .font(.headline)
+            Text("DRAW WHAT YOU'RE LOOKING FOR")
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(1.5)
+                .foregroundColor(appTheme.accentColor.opacity(0.7))
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(UIColor.secondarySystemBackground))
+                .background(appTheme.editorialBackground)
             
             GeometryReader { geometry in
                 CanvasRepresentable(canvasView: $canvasView, strokeCount: $strokeCount)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.white)
-                    .cornerRadius(12)
-                    .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+                    .overlay(
+                        Rectangle()
+                            .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                    )
+                    .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 2)
                     .padding()
             }
             
-            HStack(spacing: 20) {
+            HStack(spacing: 16) {
                 Button(action: {
                     canvasView.drawing = PKDrawing()
                     strokeCount = 0
                 }) {
                     Text("Clear")
-                        .font(.headline)
+                        .font(.system(size: 14, weight: .medium))
+                        .tracking(0.3)
                         .foregroundColor(.red)
                         .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.red.opacity(0.1))
-                        .cornerRadius(10)
+                        .padding(.vertical, 14)
+                        .overlay(
+                            Rectangle()
+                                .stroke(Color.red.opacity(0.3), lineWidth: 1)
+                        )
                 }
                 
                 Button(action: { performSearch() }) {
@@ -95,15 +119,16 @@ struct SearchByDrawView: View {
                                 .progressViewStyle(CircularProgressViewStyle(tint: .white))
                         } else {
                             Image(systemName: "magnifyingglass")
+                                .font(.system(size: 13))
                         }
                         Text("Search")
-                            .font(.headline)
+                            .font(.system(size: 14, weight: .medium))
+                            .tracking(0.3)
                     }
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
-                    .padding()
+                    .padding(.vertical, 14)
                     .background(strokeCount == 0 ? Color.gray : appTheme.accentColor)
-                    .cornerRadius(10)
                 }
                 .disabled(strokeCount == 0 || isSearching)
             }
@@ -119,12 +144,12 @@ struct SearchByDrawView: View {
                 Spacer()
                 VStack(spacing: 16) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 48))
-                        .foregroundColor(.gray)
+                        .font(.system(size: 40))
+                        .foregroundColor(appTheme.accentColor.opacity(0.4))
                     Text("No Matches Found")
-                        .font(.title2.bold())
+                        .font(.system(size: 22, weight: .regular, design: .serif))
                     Text("Try drawing a simpler or more distinct shape.")
-                        .font(.subheadline)
+                        .font(.system(size: 13, weight: .light))
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                 }
@@ -133,64 +158,71 @@ struct SearchByDrawView: View {
             } else {
                 // Results header
                 HStack {
-                    Text("\(searchResults.count) match\(searchResults.count == 1 ? "" : "es") found")
-                        .font(.headline)
+                    Text("\(searchResults.count) MATCH\(searchResults.count == 1 ? "" : "ES") FOUND")
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(1.5)
+                        .foregroundColor(appTheme.accentColor.opacity(0.7))
                     Spacer()
                 }
                 .padding()
-                .background(Color(UIColor.secondarySystemBackground))
+                .background(appTheme.editorialBackground)
                 
                 ScrollView {
                     LazyVStack(spacing: 12) {
                         ForEach(searchResults) { result in
                             Button(action: {
-                                presentationMode.wrappedValue.dismiss()
-                                // Small delay to let the sheet dismiss before navigating
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    onNavigate(result.noteId, result.pageIndex)
-                                }
+                                // Share current results with parent before navigating
+                                sharedResults = searchResults
+                                onSelectResult(result.noteId, result.pageIndex)
                             }) {
                                 HStack(spacing: 16) {
-                                    // Icon
                                     ZStack {
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .fill(appTheme.accentColor.opacity(0.15))
-                                            .frame(width: 50, height: 50)
+                                        Rectangle()
+                                            .fill(appTheme.accentColor.opacity(0.08))
+                                            .frame(width: 48, height: 48)
                                         Image(systemName: "doc.text")
-                                            .font(.title2)
+                                            .font(.system(size: 20))
                                             .foregroundColor(appTheme.accentColor)
                                     }
                                     
-                                    // Note info
-                                    VStack(alignment: .leading, spacing: 4) {
+                                    VStack(alignment: .leading, spacing: 6) {
                                         Text(result.noteTitle)
-                                            .font(.headline)
+                                            .font(.system(size: 16, weight: .regular, design: .serif))
                                             .foregroundColor(.primary)
                                         Text("Page \(result.pageIndex + 1)")
-                                            .font(.subheadline)
+                                            .font(.system(size: 12, weight: .light))
                                             .foregroundColor(.secondary)
+                                        
+                                        // Heatmap gradient bar
+                                        GeometryReader { geo in
+                                            ZStack(alignment: .leading) {
+                                                Rectangle()
+                                                    .fill(Color.gray.opacity(0.12))
+                                                    .frame(height: 4)
+                                                
+                                                Rectangle()
+                                                    .fill(
+                                                        LinearGradient(
+                                                            colors: heatmapGradient(for: result.similarity),
+                                                            startPoint: .leading,
+                                                            endPoint: .trailing
+                                                        )
+                                                    )
+                                                    .frame(width: geo.size.width * CGFloat(result.similarity) / 100.0, height: 4)
+                                            }
+                                        }
+                                        .frame(height: 4)
                                     }
                                     
-                                    Spacer()
-                                    
-                                    // Similarity badge
-                                    Text("\(result.similarity)%")
-                                        .font(.system(.body, design: .rounded).bold())
-                                        .foregroundColor(similarityColor(result.similarity))
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 6)
-                                        .background(
-                                            Capsule()
-                                                .fill(similarityColor(result.similarity).opacity(0.15))
-                                        )
-                                    
-                                    Image(systemName: "chevron.right")
-                                        .foregroundColor(.secondary)
+                                    Image(systemName: "arrow.right")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(appTheme.accentColor)
                                 }
-                                .padding()
-                                .background(
-                                    RoundedRectangle(cornerRadius: 16)
-                                        .fill(Color(UIColor.secondarySystemGroupedBackground))
+                                .padding(16)
+                                .background(Color.white)
+                                .overlay(
+                                    Rectangle()
+                                        .stroke(Color.primary.opacity(0.06), lineWidth: 1)
                                 )
                             }
                             .buttonStyle(.plain)
@@ -204,10 +236,22 @@ struct SearchByDrawView: View {
     
     // MARK: - Helpers
     
-    private func similarityColor(_ percent: Int) -> Color {
-        if percent >= 80 { return .green }
-        if percent >= 60 { return .orange }
-        return .red
+    /// Returns gradient colors for the heatmap bar based on similarity percentage.
+    /// Red → Orange → Yellow → Green as similarity increases.
+    private func heatmapGradient(for percent: Int) -> [Color] {
+        if percent >= 80 {
+            return [Color(hue: 0.25, saturation: 0.7, brightness: 0.85),
+                    Color(hue: 0.35, saturation: 0.8, brightness: 0.9)]  // Green
+        } else if percent >= 60 {
+            return [Color(hue: 0.1, saturation: 0.8, brightness: 0.95),
+                    Color(hue: 0.2, saturation: 0.75, brightness: 0.9)]  // Yellow-Green
+        } else if percent >= 40 {
+            return [Color(hue: 0.05, saturation: 0.85, brightness: 0.95),
+                    Color(hue: 0.12, saturation: 0.8, brightness: 0.95)] // Orange-Yellow
+        } else {
+            return [Color(hue: 0.0, saturation: 0.75, brightness: 0.9),
+                    Color(hue: 0.05, saturation: 0.8, brightness: 0.95)] // Red-Orange
+        }
     }
     
     private func performSearch() {
@@ -239,10 +283,9 @@ struct SearchByDrawView: View {
             do {
                 let results = try await ImageMatchingService.shared.search(queryImage: image)
                 
-                // Filter by threshold and map to display results
                 let filtered = results
                     .filter { $0.distance < distanceThreshold }
-                    .prefix(5) // Show top 5 at most
+                    .prefix(5)
                     .map { result -> DrawSearchResult in
                         let components = result.pageId.components(separatedBy: "_")
                         let noteId = components.first ?? result.pageId
@@ -261,6 +304,7 @@ struct SearchByDrawView: View {
                 
                 await MainActor.run {
                     searchResults = Array(filtered)
+                    sharedResults = Array(filtered)
                     noMatchesFound = filtered.isEmpty
                     hasSearched = true
                     isSearching = false

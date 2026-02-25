@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MiniClone — Academic Clean</title>
+    <style>
+        :root {
+            --bg: #F2F2F7;
+            --card: #FFF;
+            --text: #1C1C1E;
+            --sec: #8E8E93;
+            --sec2: #AEAEB2;
+            --border: rgba(0, 0, 0, .06);
+            --accent: #007AFF;
+            --accent-bg: rgba(0, 122, 255, .08);
+            --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--sans);
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .sh {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* iPadOS Sidebar */
+        .sb {
+            width: 320px;
+            background: rgba(242, 242, 247, .85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-right: 1px solid rgba(0, 0, 0, .08);
+            display: flex;
+            flex-direction: column;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            overflow-y: auto;
+        }
+
+        .sb-header {
+            padding: 20px 20px 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .sb-header h2 {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -.02em;
+        }
+
+        .sb-header button {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--accent-bg);
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--accent);
+            transition: background .15s;
+        }
+
+        .sb-header button:hover {
+            background: rgba(0, 122, 255, .15);
+        }
+
+        .sb-header button svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        /* Search */
+        .sb-search {
+            margin: 0 16px 12px;
+            position: relative;
+        }
+
+        .sb-search input {
+            width: 100%;
+            padding: 8px 12px 8px 32px;
+            border-radius: 10px;
+            border: none;
+            background: rgba(118, 118, 128, .12);
+            font-family: var(--sans);
+            font-size: 15px;
+            color: var(--text);
+            outline: none;
+        }
+
+        .sb-search input::placeholder {
+            color: var(--sec);
+        }
+
+        .sb-search svg {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 14px;
+            height: 14px;
+            color: var(--sec);
+        }
+
+        /* Sections */
+        .sb-section {
+            padding: 0 8px;
+        }
+
+        .sb-section-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--sec);
+            text-transform: uppercase;
+            letter-spacing: .05em;
+            padding: 16px 12px 6px;
+        }
+
+        .sb-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background .15s;
+        }
+
+        .sb-item:hover {
+            background: rgba(0, 0, 0, .04);
+        }
+
+        .sb-item.active {
+            background: var(--accent-bg);
+        }
+
+        .sb-item .ic {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .sb-item .ic.folder {
+            background: #FFF3E0;
+            color: #FF9800;
+        }
+
+        .sb-item .ic.note {
+            background: #E3F2FD;
+            color: var(--accent);
+        }
+
+        .sb-item .ic.pin {
+            background: #FDE8E8;
+            color: #F44336;
+        }
+
+        .sb-item .ic svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .sb-item .txt {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .sb-item .txt h4 {
+            font-size: 15px;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .sb-item .txt span {
+            font-size: 12px;
+            color: var(--sec);
+        }
+
+        .sb-item.active h4 {
+            color: var(--accent);
+        }
+
+        .sb-item .badge {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--sec2);
+            background: rgba(0, 0, 0, .05);
+            padding: 2px 8px;
+            border-radius: 10px;
+            flex-shrink: 0;
+        }
+
+        /* Main */
+        .mn {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .mn-header {
+            padding: 20px 32px 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(255, 255, 255, .7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .mn-header h1 {
+            font-size: 22px;
+            font-weight: 600;
+        }
+
+        .mn-header .tools {
+            display: flex;
+            gap: 6px;
+        }
+
+        .mn-header .tools button {
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            border: none;
+            background: 0;
+            cursor: pointer;
+            color: var(--sec);
+            transition: all .15s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .mn-header .tools button:hover {
+            background: rgba(0, 0, 0, .05);
+            color: var(--text);
+        }
+
+        .mn-header .tools button.primary {
+            background: var(--accent);
+            color: #fff;
+        }
+
+        .mn-header .tools button.primary:hover {
+            background: #0066DD;
+        }
+
+        .mn-header .tools button svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        /* Note grid */
+        .notes {
+            padding: 24px 32px;
+            flex: 1;
+        }
+
+        .notes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 16px;
+        }
+
+        .note-card {
+            background: var(--card);
+            border-radius: 12px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: transform .2s, box-shadow .2s;
+            border: 1px solid var(--border);
+        }
+
+        .note-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, .06);
+        }
+
+        .note-card .thumb {
+            height: 140px;
+            background: #FFF;
+            position: relative;
+            border-bottom: 1px solid var(--border);
+            overflow: hidden;
+        }
+
+        .note-card .thumb svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .note-card .thumb .pin-badge {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: #FF3B30;
+            color: #fff;
+            font-size: 9px;
+            font-weight: 700;
+            padding: 3px 7px;
+            border-radius: 6px;
+            text-transform: uppercase;
+            letter-spacing: .05em;
+        }
+
+        .note-card .body {
+            padding: 12px;
+        }
+
+        .note-card .body h4 {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .note-card .body span {
+            font-size: 12px;
+            color: var(--sec);
+        }
+
+        .note-card.folder .thumb {
+            background: linear-gradient(135deg, #FFF8E1, #FFF3E0);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .note-card.folder .thumb svg {
+            width: 48px;
+            height: 48px;
+            color: #FF9800;
+        }
+
+        /* Bottom toolbar */
+        .btb {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, .85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(0, 0, 0, .08);
+            border-radius: 16px;
+            padding: 6px 12px;
+            display: flex;
+            gap: 2px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, .08);
+        }
+
+        .btb button {
+            width: 40px;
+            height: 40px;
+            border: none;
+            border-radius: 10px;
+            background: 0;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--sec);
+            transition: all .15s;
+        }
+
+        .btb button.active {
+            color: var(--accent);
+            background: var(--accent-bg);
+        }
+
+        .btb button:hover:not(.active) {
+            background: rgba(0, 0, 0, .04);
+            color: var(--text);
+        }
+
+        .btb button svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        .btb .dv {
+            width: 1px;
+            background: rgba(0, 0, 0, .06);
+            margin: 8px 4px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="sh">
+        <aside class="sb">
+            <div class="sb-header">
+                <h2>MiniClone</h2>
+                <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <line x1="12" y1="5" x2="12" y2="19" />
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg></button>
+            </div>
+            <div class="sb-search">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8" />
+                    <path d="M21 21l-4.35-4.35" />
+                </svg>
+                <input type="text" placeholder="Search">
+            </div>
+            <div class="sb-section">
+                <div class="sb-section-title">Pinned</div>
+                <div class="sb-item active">
+                    <div class="ic pin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 17l-4 4V8a5 5 0 0110 0v13l-4-4h-2z" />
+                        </svg></div>
+                    <div class="txt">
+                        <h4>Organic Chemistry Lecture</h4><span>3 pages · Today</span>
+                    </div>
+                </div>
+            </div>
+            <div class="sb-section">
+                <div class="sb-section-title">Folders</div>
+                <div class="sb-item">
+                    <div class="ic folder"><svg viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M10 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V8a2 2 0 00-2-2h-8l-2-2z" />
+                        </svg></div>
+                    <div class="txt">
+                        <h4>Physics 201</h4><span>8 items</span>
+                    </div>
+                    <span class="badge">8</span>
+                </div>
+                <div class="sb-item">
+                    <div class="ic folder"><svg viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M10 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V8a2 2 0 00-2-2h-8l-2-2z" />
+                        </svg></div>
+                    <div class="txt">
+                        <h4>Research Papers</h4><span>5 items</span>
+                    </div>
+                    <span class="badge">5</span>
+                </div>
+            </div>
+            <div class="sb-section">
+                <div class="sb-section-title">Recent Notes</div>
+                <div class="sb-item">
+                    <div class="ic note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" />
+                            <path d="M14 2v6h6" />
+                        </svg></div>
+                    <div class="txt">
+                        <h4>Linear Algebra Quick Ref</h4><span>1 page · Today</span>
+                    </div>
+                </div>
+                <div class="sb-item">
+                    <div class="ic note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" />
+                            <path d="M14 2v6h6" />
+                        </svg></div>
+                    <div class="txt">
+                        <h4>CogSci — Memory Models</h4><span>2 pages · Yesterday</span>
+                    </div>
+                </div>
+                <div class="sb-item">
+                    <div class="ic note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" />
+                            <path d="M14 2v6h6" />
+                        </svg></div>
+                    <div class="txt">
+                        <h4>Calculus III — Integrals</h4><span>4 pages · Feb 22</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+        <div class="mn">
+            <div class="mn-header">
+                <h1>Dashboard</h1>
+                <div class="tools">
+                    <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="7" height="7" />
+                            <rect x="14" y="3" width="7" height="7" />
+                            <rect x="3" y="14" width="7" height="7" />
+                            <rect x="14" y="14" width="7" height="7" />
+                        </svg></button>
+                    <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="3" y1="6" x2="21" y2="6" />
+                            <line x1="3" y1="12" x2="21" y2="12" />
+                            <line x1="3" y1="18" x2="21" y2="18" />
+                        </svg></button>
+                    <button class="primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2.5">
+                            <line x1="12" y1="5" x2="12" y2="19" />
+                            <line x1="5" y1="12" x2="19" y2="12" />
+                        </svg></button>
+                </div>
+            </div>
+            <div class="notes">
+                <div class="notes-grid">
+                    <div class="note-card">
+                        <div class="thumb">
+                            <span class="pin-badge">Pinned</span>
+                            <svg viewBox="0 0 200 140" fill="none">
+                                <path d="M15 30Q40 15 80 28T150 22T185 30" stroke="#007AFF" stroke-width="1.8"
+                                    stroke-linecap="round" opacity=".5" />
+                                <path d="M15 52Q50 40 100 48T160 44T185 50" stroke="#1C1C1E" stroke-width="1.4"
+                                    stroke-linecap="round" opacity=".25" />
+                                <path d="M15 72Q60 62 120 68T185 66" stroke="#1C1C1E" stroke-width="1.2"
+                                    stroke-linecap="round" opacity=".15" />
+                                <path d="M15 92Q70 84 140 88T185 86" stroke="#1C1C1E" stroke-width="1"
+                                    stroke-linecap="round" opacity=".1" />
+                                <circle cx="155" cy="52" r="16" stroke="#007AFF" stroke-width="1.2" fill="none"
+                                    opacity=".15" />
+                            </svg>
+                        </div>
+                        <div class="body">
+                            <h4>Organic Chemistry Lecture</h4><span>3 pages · Today</span>
+                        </div>
+                    </div>
+                    <div class="note-card folder">
+                        <div class="thumb"><svg viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M10 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V8a2 2 0 00-2-2h-8l-2-2z" />
+                            </svg></div>
+                        <div class="body">
+                            <h4>Physics 201</h4><span>8 items</span>
+                        </div>
+                    </div>
+                    <div class="note-card">
+                        <div class="thumb">
+                            <svg viewBox="0 0 200 140" fill="none">
+                                <rect x="20" y="25" width="50" height="35" stroke="#1C1C1E" stroke-width="1" fill="none"
+                                    opacity=".15" rx="1" />
+                                <path d="M25 40h15M25 48h18" stroke="#1C1C1E" stroke-width="1" opacity=".1" />
+                                <path d="M90 28Q120 20 160 30T185 26" stroke="#1C1C1E" stroke-width="1.2"
+                                    stroke-linecap="round" opacity=".2" />
+                                <path d="M90 48Q130 42 170 46" stroke="#1C1C1E" stroke-width="1" stroke-linecap="round"
+                                    opacity=".12" />
+                                <path d="M20 85Q60 78 120 82T185 80" stroke="#1C1C1E" stroke-width="1"
+                                    stroke-linecap="round" opacity=".1" />
+                            </svg>
+                        </div>
+                        <div class="body">
+                            <h4>Linear Algebra Quick Ref</h4><span>1 page · Today</span>
+                        </div>
+                    </div>
+                    <div class="note-card">
+                        <div class="thumb">
+                            <svg viewBox="0 0 200 140" fill="none">
+                                <path d="M15 35Q45 22 95 32T185 28" stroke="#1C1C1E" stroke-width="1.4"
+                                    stroke-linecap="round" opacity=".2" />
+                                <path d="M15 55Q55 45 115 50T185 48" stroke="#1C1C1E" stroke-width="1.2"
+                                    stroke-linecap="round" opacity=".15" />
+                                <path d="M15 75Q65 66 135 70T185 68" stroke="#1C1C1E" stroke-width="1"
+                                    stroke-linecap="round" opacity=".1" />
+                                <path d="M15 95Q75 88 155 92" stroke="#1C1C1E" stroke-width="1" stroke-linecap="round"
+                                    opacity=".08" />
+                            </svg>
+                        </div>
+                        <div class="body">
+                            <h4>CogSci — Memory Models</h4><span>2 pages · Yesterday</span>
+                        </div>
+                    </div>
+                    <div class="note-card folder">
+                        <div class="thumb"><svg viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M10 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V8a2 2 0 00-2-2h-8l-2-2z" />
+                            </svg></div>
+                        <div class="body">
+                            <h4>Research Papers</h4><span>5 items</span>
+                        </div>
+                    </div>
+                    <div class="note-card">
+                        <div class="thumb">
+                            <svg viewBox="0 0 200 140" fill="none">
+                                <path d="M15 32Q50 20 100 30T185 26" stroke="#007AFF" stroke-width="1.5"
+                                    stroke-linecap="round" opacity=".3" />
+                                <path d="M15 55Q60 45 130 50T185 48" stroke="#1C1C1E" stroke-width="1.2"
+                                    stroke-linecap="round" opacity=".15" />
+                                <path d="M15 78Q70 70 140 74T185 72" stroke="#1C1C1E" stroke-width="1"
+                                    stroke-linecap="round" opacity=".1" />
+                            </svg>
+                        </div>
+                        <div class="body">
+                            <h4>Calculus III — Integrals</h4><span>4 pages · Feb 22</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="btb">
+        <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" />
+            </svg></button>
+        <button class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M12 19l7-7 3 3-7 7-3-3z" />
+                <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" />
+            </svg></button>
+        <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M20 14.66V20a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2h5.34" />
+                <polygon points="18 2 22 6 12 16 8 16 8 12 18 2" />
+            </svg></button>
+        <div class="dv"></div>
+        <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M1 4v6h6M23 20v-6h-6" />
+                <path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15" />
+            </svg></button>
+        <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6l-2 14H7L5 6" />
+                <path d="M10 11v6M14 11v6" />
+            </svg></button>
+    </div>
+</body>
+
+</html>

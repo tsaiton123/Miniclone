@@ -82,6 +82,7 @@ struct FileSystemView: View {
     }
     
     @State private var selectedTab = 1
+    @State private var openedFromSearch = false
     
     var body: some View {
         NavigationStack(path: $viewModel.navigationPath) {
@@ -108,7 +109,7 @@ struct FileSystemView: View {
                         // Title
                         HStack {
                             Text(viewModel.currentFolder?.title ?? "Dashboard")
-                                .font(.system(size: 34, weight: .bold))
+                                .font(.system(size: 34, weight: .regular, design: .serif))
                                 .padding(.leading, 20)
                                 .padding(.top, 20)
                             Spacer()
@@ -119,11 +120,12 @@ struct FileSystemView: View {
                                 let item = filtered.note
                                 DashboardCardView(
                                     title: item.title,
-                                    description: filtered.snippet ?? (item.isFolder ? "Folder • \(item.children?.count ?? 0) items" : "Note • \(item.createdAt.formatted(date: .abbreviated, time: .shortened))"),
+                                    description: filtered.snippet ?? (item.isFolder ? "Folder · \(item.children?.count ?? 0) items" : "Note · \(item.createdAt.formatted(date: .abbreviated, time: .shortened))"),
                                     highlightQuery: viewModel.searchText,
                                     icon: item.isFolder ? "folder" : "doc.text",
-                                    backgroundColor: item.isFolder ? appTheme.cardBackground : Color(UIColor.secondarySystemBackground),
-                                    buttonText: item.isFolder ? "Open" : "Get Started",
+                                    backgroundColor: item.isFolder ? appTheme.folderCardBackground : appTheme.cardBackground,
+                                    buttonText: item.isFolder ? "Browse" : "Open Note",
+                                    isFolder: item.isFolder,
                                     action: {
                                         if item.isFolder {
                                             viewModel.navigateTo(folder: item)
@@ -249,7 +251,6 @@ struct FileSystemView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenNoteFromSearch"))) { notification in
                 print("[DEBUG-NAV] Received OpenNoteFromSearch notification")
-                print("[DEBUG-NAV] userInfo: \(notification.userInfo ?? [:])")
                 
                 guard let userInfo = notification.userInfo,
                       let noteIdString = userInfo["noteId"] as? String,
@@ -259,14 +260,24 @@ struct FileSystemView: View {
                     return
                 }
                 
-                print("[DEBUG-NAV] Looking for note with id: \(noteIdString)")
                 guard let note = viewModel.findItem(by: noteId) else {
                     print("[DEBUG-NAV] ⚠️ Note NOT FOUND in data store!")
                     return
                 }
                 
-                print("[DEBUG-NAV] ✅ Found note '\(note.title)', navigating to page \(pageIndex)")
+                let fromSearch = (userInfo["fromSearch"] as? Bool) ?? false
+                print("[DEBUG-NAV] ✅ Opening note '\(note.title)' page \(pageIndex), fromSearch=\(fromSearch)")
+                openedFromSearch = fromSearch
                 viewModel.navigationPath.append(NavigationTarget(note: note, pageIndex: pageIndex))
+            }
+            .onChange(of: viewModel.navigationPath) { oldPath, newPath in
+                // When user taps Back and the path shrinks, check if we should reopen search
+                if openedFromSearch && newPath.count < oldPath.count && newPath.isEmpty {
+                    openedFromSearch = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        NotificationCenter.default.post(name: NSNotification.Name("ReopenSearchResults"), object: nil)
+                    }
+                }
             }
         }
     }
@@ -384,7 +395,7 @@ struct AddItemOptionsSheet: View {
                 .padding(.horizontal, 24)
             }
             .scrollIndicators(.hidden)
-            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            .background(appTheme.editorialBackground.ignoresSafeArea())
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
@@ -405,41 +416,50 @@ struct AddItemOptionsSheet: View {
     @ViewBuilder
     private var header: some View {
         VStack(alignment: .leading, spacing: 16) {
+            Text("CREATE NEW")
+                .font(.system(size: 10, weight: .semibold))
+                .tracking(1.8)
+                .foregroundColor(appTheme.accentColor.opacity(0.7))
+            
             HStack(spacing: 16) {
                 ZStack {
-                    Circle()
+                    Rectangle()
                         .fill(appTheme.heroBackground)
-                        .frame(width: 60, height: 60)
+                        .frame(width: 52, height: 52)
                     Image(systemName: currentLocationName == "Dashboard" ? "square.grid.2x2" : "folder.fill")
-                        .font(.system(size: 26, weight: .semibold))
+                        .font(.system(size: 22, weight: .regular))
                         .foregroundColor(appTheme.accentColor)
                 }
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Create new items")
-                        .font(.title3.bold())
+                        .font(.system(size: 20, weight: .regular, design: .serif))
                     Text("Anything you add will live in \(currentLocationName).")
                         .foregroundStyle(.secondary)
-                        .font(.subheadline)
+                        .font(.system(size: 13, weight: .light))
                 }
             }
             
             HStack(spacing: 8) {
                 Label(itemCountLabel, systemImage: "tray.full")
-                    .font(.caption.weight(.semibold))
+                    .font(.system(size: 11, weight: .medium))
+                    .tracking(0.3)
                     .padding(.vertical, 6)
                     .padding(.horizontal, 12)
-                    .background(
-                        Capsule()
-                            .fill(appTheme.accentColor.opacity(0.1))
+                    .overlay(
+                        Rectangle()
+                            .stroke(appTheme.accentColor.opacity(0.2), lineWidth: 1)
                     )
                 Spacer()
             }
         }
-        .padding()
+        .padding(20)
         .background(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemGroupedBackground))
+            Color.white
+        )
+        .overlay(
+            Rectangle()
+                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
         )
     }
     
@@ -487,7 +507,7 @@ struct ItemCreationSheet: View {
                 .padding(.horizontal, 24)
             }
             .scrollIndicators(.hidden)
-            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            .background(appTheme.editorialBackground.ignoresSafeArea())
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
@@ -512,42 +532,49 @@ struct ItemCreationSheet: View {
     @ViewBuilder
     private var heroSection: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Text(title.lowercased().contains("folder") ? "NEW FOLDER" : "NEW NOTE")
+                .font(.system(size: 10, weight: .semibold))
+                .tracking(1.8)
+                .foregroundColor(appTheme.accentColor.opacity(0.7))
+            
             HStack(spacing: 16) {
                 ZStack {
-                    Circle()
+                    Rectangle()
                         .fill(appTheme.heroBackground)
-                        .frame(width: 60, height: 60)
+                        .frame(width: 52, height: 52)
                     Image(systemName: heroIconName)
-                        .font(.system(size: 26, weight: .semibold))
+                        .font(.system(size: 22, weight: .regular))
                         .foregroundColor(appTheme.accentColor)
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .font(.title3.bold())
+                        .font(.system(size: 20, weight: .regular, design: .serif))
                     if !message.isEmpty {
                         Text(message)
                             .foregroundStyle(.secondary)
-                            .font(.subheadline)
+                            .font(.system(size: 13, weight: .light))
                     }
                 }
             }
             Text("Keep it short and descriptive for easier search later.")
-                .font(.footnote)
+                .font(.system(size: 12, weight: .light))
                 .foregroundStyle(.secondary)
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemGroupedBackground))
+        .padding(20)
+        .background(Color.white)
+        .overlay(
+            Rectangle()
+                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
         )
     }
     
     @ViewBuilder
     private var titleFieldSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Title")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
+            Text("TITLE")
+                .font(.system(size: 10, weight: .semibold))
+                .tracking(1.5)
+                .foregroundColor(appTheme.accentColor.opacity(0.6))
             
             TextField(placeholder, text: $text)
                 .focused($isTitleFieldFocused)
@@ -555,37 +582,47 @@ struct ItemCreationSheet: View {
                 .autocorrectionDisabled()
                 .submitLabel(.done)
                 .onSubmit(handleCreate)
-                .padding()
-                .background(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .strokeBorder(appTheme.accentColor.opacity(0.3), lineWidth: 1)
+                .font(.system(size: 16, weight: .regular, design: .serif))
+                .padding(14)
+                .background(Color.white)
+                .overlay(
+                    Rectangle()
+                        .stroke(appTheme.accentColor.opacity(0.25), lineWidth: 1)
                 )
             
             HStack {
                 Text("This helps keep things organized.")
-                    .font(.caption)
+                    .font(.system(size: 11, weight: .light))
                     .foregroundStyle(.secondary)
                 Spacer()
                 Text("\(trimmedText.count)/\(maxCharacters)")
-                    .font(.caption.monospacedDigit())
+                    .font(.system(size: 11).monospacedDigit())
                     .foregroundColor(trimmedText.count >= maxCharacters ? .red : .secondary)
             }
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemBackground))
+        .padding(20)
+        .background(Color.white)
+        .overlay(
+            Rectangle()
+                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
         )
     }
     
     private var primaryButton: some View {
         Button(action: handleCreate) {
-            Text(primaryButtonTitle)
-                .font(.headline)
-                .frame(maxWidth: .infinity)
+            HStack {
+                Text(primaryButtonTitle)
+                    .font(.system(size: 14, weight: .medium))
+                    .tracking(0.3)
+                Spacer()
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 12))
+            }
+            .foregroundColor(trimmedText.isEmpty ? .secondary : appTheme.textOnAccent)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .background(trimmedText.isEmpty ? Color.gray.opacity(0.15) : appTheme.accentColor)
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
         .disabled(trimmedText.isEmpty)
     }
     
@@ -606,24 +643,25 @@ struct InfoCallout: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon)
-                .font(.system(size: 20, weight: .semibold))
+                .font(.system(size: 16, weight: .regular))
                 .foregroundColor(iconTint)
                 .padding(8)
                 .background(
-                    Circle()
-                        .fill(iconTint.opacity(0.15))
+                    Rectangle()
+                        .fill(iconTint.opacity(0.1))
                 )
             
             Text(message)
-                .font(.subheadline)
+                .font(.system(size: 13, weight: .light))
                 .foregroundStyle(.secondary)
             
             Spacer(minLength: 0)
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(iconTint.opacity(0.08))
+        .padding(16)
+        .background(Color.white)
+        .overlay(
+            Rectangle()
+                .stroke(iconTint.opacity(0.15), lineWidth: 1)
         )
     }
 }
@@ -641,47 +679,50 @@ struct CreateOptionButton: View {
         Button(action: action) {
             HStack(alignment: .center, spacing: 18) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(tint.opacity(0.15))
-                        .frame(width: 58, height: 58)
+                    Rectangle()
+                        .fill(tint.opacity(0.08))
+                        .frame(width: 52, height: 52)
                     Image(systemName: icon)
-                        .font(.system(size: 24, weight: .semibold))
+                        .font(.system(size: 20, weight: .regular))
                         .foregroundColor(tint)
                 }
                 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
                         Text(title)
-                            .font(.headline)
+                            .font(.system(size: 16, weight: .regular, design: .serif))
                         if let badgeText {
                             Text(badgeText.uppercased())
-                                .font(.caption2.bold())
+                                .font(.system(size: 9, weight: .semibold))
+                                .tracking(0.8)
                                 .padding(.vertical, 3)
                                 .padding(.horizontal, 8)
-                                .background(
-                                    Capsule()
-                                        .fill(tint.opacity(0.2))
+                                .overlay(
+                                    Rectangle()
+                                        .stroke(tint.opacity(0.3), lineWidth: 1)
                                 )
                         }
                     }
                     Text(subtitle)
-                        .font(.subheadline)
+                        .font(.system(size: 13, weight: .light))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 
                 Spacer()
                 
-                Image(systemName: isLocked ? "lock.fill" : "chevron.forward")
-                    .foregroundStyle(.secondary)
+                Image(systemName: isLocked ? "lock.fill" : "arrow.right")
+                    .font(.system(size: 12))
+                    .foregroundColor(tint)
             }
-            .padding()
+            .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
-                    .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: 4)
+            .background(Color.white)
+            .overlay(
+                Rectangle()
+                    .stroke(Color.primary.opacity(0.06), lineWidth: 1)
             )
+            .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)

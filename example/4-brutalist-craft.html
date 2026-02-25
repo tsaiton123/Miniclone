@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MiniClone — Brutalist-Craft</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg: #FAFAFA;
+            --card: #FFFFFF;
+            --text: #111;
+            --sec: #888;
+            --border: rgba(0, 0, 0, .1);
+            --accent: #E5722E;
+            --mono: 'IBM Plex Mono', monospace;
+            --sans: 'IBM Plex Sans', sans-serif;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--sans);
+            min-height: 100vh;
+        }
+
+        .sh {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        .sb {
+            width: 56px;
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px 0;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            background: var(--bg);
+        }
+
+        .sb .logo {
+            width: 32px;
+            height: 32px;
+            background: var(--text);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-family: var(--mono);
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 32px;
+        }
+
+        .sb nav {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            flex: 1;
+        }
+
+        .sb nav button {
+            width: 36px;
+            height: 36px;
+            border: none;
+            background: 0;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--sec);
+            transition: color .15s;
+        }
+
+        .sb nav button.active {
+            color: var(--text);
+        }
+
+        .sb nav button.active::after {
+            content: '';
+            display: block;
+            width: 3px;
+            height: 3px;
+            background: var(--accent);
+            border-radius: 50%;
+            position: absolute;
+            right: 8px;
+        }
+
+        .sb nav button {
+            position: relative;
+        }
+
+        .sb nav button svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        .mn {
+            flex: 1;
+            padding: 40px 48px;
+            max-width: 960px;
+        }
+
+        .top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 48px;
+        }
+
+        .top .loc {
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--sec);
+            letter-spacing: .05em;
+            text-transform: uppercase;
+        }
+
+        .sr {
+            font-family: var(--mono);
+            font-size: 12px;
+            color: var(--sec);
+            border: 1px solid var(--border);
+            padding: 7px 12px;
+            background: 0;
+            width: 200px;
+            outline: none;
+            transition: border-color .2s;
+        }
+
+        .sr:focus {
+            border-color: var(--text);
+        }
+
+        .hd {
+            margin-bottom: 56px;
+        }
+
+        .hd .label {
+            font-family: var(--mono);
+            font-size: 10px;
+            letter-spacing: .16em;
+            text-transform: uppercase;
+            color: var(--sec);
+            margin-bottom: 8px;
+        }
+
+        .hd h1 {
+            font-size: 40px;
+            font-weight: 300;
+            line-height: 1.15;
+            letter-spacing: -.02em;
+        }
+
+        .hd h1 strong {
+            font-weight: 600;
+        }
+
+        .cnt {
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--sec);
+            margin-top: 12px;
+            display: flex;
+            gap: 24px;
+        }
+
+        .cnt span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .cnt .n {
+            font-weight: 600;
+            color: var(--text);
+            font-size: 13px;
+        }
+
+        .list {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .row {
+            display: flex;
+            align-items: stretch;
+            border-top: 1px solid var(--border);
+            transition: background .15s;
+            cursor: pointer;
+        }
+
+        .row:last-child {
+            border-bottom: 1px solid var(--border);
+        }
+
+        .row:hover {
+            background: rgba(0, 0, 0, .02);
+        }
+
+        .row .idx {
+            width: 48px;
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--sec);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-right: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+
+        .row .info {
+            flex: 1;
+            padding: 16px 20px;
+        }
+
+        .row .info h3 {
+            font-size: 15px;
+            font-weight: 500;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .row .info h3 .pin {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent);
+        }
+
+        .row .info p {
+            font-size: 12px;
+            color: var(--sec);
+            line-height: 1.5;
+        }
+
+        .row .meta {
+            width: 160px;
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--sec);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 16px;
+            border-left: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+
+        .row .meta .type {
+            font-weight: 500;
+            color: var(--text);
+            margin-bottom: 2px;
+        }
+
+        .row .act {
+            width: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-left: 1px solid var(--border);
+            flex-shrink: 0;
+            color: var(--sec);
+            transition: color .15s;
+        }
+
+        .row:hover .act {
+            color: var(--accent);
+        }
+
+        .row .act svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .ft {
+            margin-top: 48px;
+            padding-top: 24px;
+            border-top: 1px solid var(--border);
+            font-family: var(--mono);
+            font-size: 10px;
+            color: var(--sec);
+            display: flex;
+            justify-content: space-between;
+            letter-spacing: .05em;
+            text-transform: uppercase;
+        }
+
+        .tb {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--text);
+            border-radius: 2px;
+            padding: 6px 10px;
+            display: flex;
+            gap: 2px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, .15);
+        }
+
+        .tb button {
+            width: 36px;
+            height: 36px;
+            border: none;
+            background: 0;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255, 255, 255, .4);
+            transition: color .15s;
+        }
+
+        .tb button.active {
+            color: var(--accent);
+        }
+
+        .tb button:hover:not(.active) {
+            color: rgba(255, 255, 255, .8);
+        }
+
+        .tb button svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .tb .dv {
+            width: 1px;
+            background: rgba(255, 255, 255, .1);
+            margin: 6px 4px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="sh">
+        <aside class="sb">
+            <div class="logo">M</div>
+            <nav>
+                <button class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="7" height="7" />
+                        <rect x="14" y="3" width="7" height="7" />
+                        <rect x="3" y="14" width="7" height="7" />
+                        <rect x="14" y="14" width="7" height="7" />
+                    </svg></button>
+                <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    </svg></button>
+                <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19" />
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg></button>
+            </nav>
+        </aside>
+        <main class="mn">
+            <div class="top">
+                <span class="loc">/ Dashboard</span>
+                <input class="sr" type="text" placeholder="Search…">
+            </div>
+            <div class="hd">
+                <div class="label">Workspace</div>
+                <h1><strong>Dashboard</strong></h1>
+                <div class="cnt">
+                    <span><span class="n">12</span> notes</span>
+                    <span><span class="n">3</span> folders</span>
+                    <span><span class="n">47</span> pages</span>
+                </div>
+            </div>
+            <div class="list">
+                <div class="row">
+                    <div class="idx">01</div>
+                    <div class="info">
+                        <h3><span class="pin"></span>Organic Chemistry Lecture Notes</h3>
+                        <p>Functional groups, reaction mechanisms, stereochemistry diagrams</p>
+                    </div>
+                    <div class="meta"><span class="type">Note</span>3 pages · Today</div>
+                    <div class="act"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M5 12h14M12 5l7 7-7 7" />
+                        </svg></div>
+                </div>
+                <div class="row">
+                    <div class="idx">02</div>
+                    <div class="info">
+                        <h3>Physics 201</h3>
+                        <p>Problem sets, lecture notes, and lab reports</p>
+                    </div>
+                    <div class="meta"><span class="type">Folder</span>8 items</div>
+                    <div class="act"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M5 12h14M12 5l7 7-7 7" />
+                        </svg></div>
+                </div>
+                <div class="row">
+                    <div class="idx">03</div>
+                    <div class="info">
+                        <h3>Linear Algebra Quick Reference</h3>
+                        <p>Matrix operations, eigenvalues, vector spaces cheat sheet</p>
+                    </div>
+                    <div class="meta"><span class="type">Note</span>1 page · Today</div>
+                    <div class="act"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M5 12h14M12 5l7 7-7 7" />
+                        </svg></div>
+                </div>
+                <div class="row">
+                    <div class="idx">04</div>
+                    <div class="info">
+                        <h3>Cognitive Science — Memory Models</h3>
+                        <p>Working memory, long-term encoding, Baddeley's multicomponent model</p>
+                    </div>
+                    <div class="meta"><span class="type">Note</span>2 pages · Yesterday</div>
+                    <div class="act"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M5 12h14M12 5l7 7-7 7" />
+                        </svg></div>
+                </div>
+                <div class="row">
+                    <div class="idx">05</div>
+                    <div class="info">
+                        <h3>Research Papers</h3>
+                        <p>Annotated PDFs and reading notes</p>
+                    </div>
+                    <div class="meta"><span class="type">Folder</span>5 items</div>
+                    <div class="act"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M5 12h14M12 5l7 7-7 7" />
+                        </svg></div>
+                </div>
+                <div class="row">
+                    <div class="idx">06</div>
+                    <div class="info">
+                        <h3>Calculus III — Double Integrals</h3>
+                        <p>Practice problems, boundary sketches, polar coordinates</p>
+                    </div>
+                    <div class="meta"><span class="type">Note</span>4 pages · Feb 22</div>
+                    <div class="act"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M5 12h14M12 5l7 7-7 7" />
+                        </svg></div>
+                </div>
+            </div>
+            <div class="ft">
+                <span>MiniClone v1.0</span>
+                <span>Last synced: 2 min ago</span>
+            </div>
+        </main>
+    </div>
+    <div class="tb">
+        <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" />
+            </svg></button>
+        <button class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 19l7-7 3 3-7 7-3-3z" />
+                <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" />
+            </svg></button>
+        <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20 14.66V20a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2h5.34" />
+                <polygon points="18 2 22 6 12 16 8 16 8 12 18 2" />
+            </svg></button>
+        <div class="dv"></div>
+        <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M1 4v6h6M23 20v-6h-6" />
+                <path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15" />
+            </svg></button>
+        <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6l-2 14H7L5 6" />
+                <path d="M10 11v6M14 11v6" />
+            </svg></button>
+    </div>
+</body>
+
+</html>

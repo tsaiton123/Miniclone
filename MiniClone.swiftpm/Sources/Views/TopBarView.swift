@@ -10,7 +10,7 @@ struct TopBarView: View {
         HStack(spacing: 12) {
             if horizontalSizeClass != .compact {
                 Text("MiniClone")
-                    .font(.title2)
+                    .font(.system(size: 20, weight: .regular, design: .serif))
                     .foregroundColor(.white)
                     .padding(.leading, 20)
             }
@@ -21,6 +21,7 @@ struct TopBarView: View {
                 TextField("Search resources...", text: $searchText)
                     .textFieldStyle(PlainTextFieldStyle())
                     .foregroundColor(.white)
+                    .font(.system(size: 13))
                     .padding(8)
                 
                 Button(action: {
@@ -29,32 +30,38 @@ struct TopBarView: View {
                     }
                 }) {
                     Image(systemName: searchText.isEmpty ? "magnifyingglass" : "xmark.circle.fill")
-                        .foregroundColor(.white)
+                        .foregroundColor(.white.opacity(0.7))
+                        .font(.system(size: 13))
                 }
                 .padding(.trailing, 8)
                 
                 Divider()
-                    .background(Color.white.opacity(0.5))
-                    .frame(height: 20)
+                    .background(Color.white.opacity(0.3))
+                    .frame(height: 18)
                 
                 Button(action: {
                     NotificationCenter.default.post(name: NSNotification.Name("ShowSearchByDraw"), object: nil)
                 }) {
                     Image(systemName: "scribble")
-                        .foregroundColor(.white)
+                        .foregroundColor(.white.opacity(0.7))
+                        .font(.system(size: 13))
                 }
                 .padding(.trailing, 8)
             }
-            .frame(maxWidth: horizontalSizeClass == .compact ? .infinity : 300)
-            .background(Color.white.opacity(0.1))
+            .frame(maxWidth: horizontalSizeClass == .compact ? .infinity : 280)
+            .background(Color.white.opacity(0.08))
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            )
             .cornerRadius(4)
             .padding(.horizontal, horizontalSizeClass == .compact ? 12 : 0)
             
             if horizontalSizeClass == .compact {
                 Button(action: { onSettings?() }) {
-                    Image(systemName: "gearshape.fill")
-                        .font(.system(size: 20))
-                        .foregroundColor(.white)
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 18))
+                        .foregroundColor(.white.opacity(0.7))
                 }
                 .padding(.trailing, 12)
             } else {
@@ -62,7 +69,7 @@ struct TopBarView: View {
                     .frame(width: 20)
             }
         }
-        .frame(height: 60)
+        .frame(height: 56)
         .background(appTheme.chromeBackground)
     }
 }

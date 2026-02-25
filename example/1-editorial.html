@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MiniClone — Editorial Style</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #FAF8F5;
+    --bg-card: #FFFFFF;
+    --text: #1A1A1A;
+    --text-secondary: #8A8580;
+    --accent: #C8522E;
+    --accent-light: #F3E8E3;
+    --border: rgba(0,0,0,0.06);
+    --serif: 'Playfair Display', Georgia, serif;
+    --sans: 'Inter', -apple-system, sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; overflow-x: hidden; }
+
+  /* --- LAYOUT --- */
+  .shell { display: flex; min-height: 100vh; }
+
+  /* SIDEBAR */
+  .sidebar {
+    width: 72px; background: var(--bg-card); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; align-items: center; padding: 28px 0;
+    position: sticky; top: 0; height: 100vh;
+  }
+  .sidebar .logo { width: 36px; height: 36px; border-radius: 10px; background: var(--accent); display: flex; align-items: center; justify-content: center; color: #fff; font-family: var(--serif); font-size: 18px; font-weight: 700; margin-bottom: 40px; }
+  .sidebar nav { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+  .sidebar nav button {
+    width: 44px; height: 44px; border: none; background: transparent; border-radius: 12px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .2s;
+    color: var(--text-secondary);
+  }
+  .sidebar nav button.active { background: var(--accent-light); color: var(--accent); }
+  .sidebar nav button:hover:not(.active) { background: rgba(0,0,0,.04); }
+  .sidebar nav button svg { width: 20px; height: 20px; }
+
+  /* MAIN */
+  .main { flex: 1; padding: 48px 56px; max-width: 1200px; }
+
+  /* TOP BAR */
+  .topbar { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+  .topbar .date { font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-secondary); font-weight: 500; }
+  .search-box {
+    display: flex; align-items: center; gap: 8px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; width: 260px;
+  }
+  .search-box input { border: none; background: transparent; font-family: var(--sans); font-size: 13px; outline: none; width: 100%; color: var(--text); }
+  .search-box svg { width: 16px; height: 16px; color: var(--text-secondary); flex-shrink: 0; }
+
+  /* HERO TITLE */
+  .hero-title { font-family: var(--serif); font-size: 58px; font-weight: 400; line-height: 1.08; margin-bottom: 48px; max-width: 600px; }
+  .hero-title em { font-style: italic; color: var(--accent); }
+
+  /* CARD GRID — asymmetric */
+  .card-grid {
+    display: grid;
+    grid-template-columns: 1.6fr 1fr;
+    grid-template-rows: auto auto;
+    gap: 20px;
+  }
+  .card {
+    background: var(--bg-card); border: 1px solid var(--border); padding: 32px; display: flex; flex-direction: column; justify-content: space-between; transition: box-shadow .25s, transform .25s;
+  }
+  .card:hover { box-shadow: 0 8px 30px rgba(0,0,0,.06); transform: translateY(-2px); }
+  .card.tall { grid-row: span 2; }
+  .card .label { font-size: 11px; text-transform: uppercase; letter-spacing: .14em; color: var(--text-secondary); font-weight: 600; margin-bottom: 16px; }
+  .card h3 { font-family: var(--serif); font-size: 26px; font-weight: 400; line-height: 1.25; margin-bottom: 10px; }
+  .card p { font-size: 14px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 24px; }
+  .card .preview {
+    width: 100%; aspect-ratio: 16/9; background: var(--bg); border: 1px solid var(--border); border-radius: 2px; position: relative; overflow: hidden; margin-bottom: 20px;
+  }
+  .card .preview .strokes {
+    position: absolute; inset: 0;
+  }
+  .card .preview .strokes svg { width: 100%; height: 100%; }
+  .card .btn {
+    display: inline-flex; align-items: center; gap: 8px; font-family: var(--sans); font-size: 13px; font-weight: 500; color: var(--accent); background: transparent; border: 1px solid var(--accent); padding: 10px 20px; cursor: pointer; transition: all .2s; letter-spacing: .03em;
+  }
+  .card .btn:hover { background: var(--accent); color: #fff; }
+  .card .btn svg { width: 14px; height: 14px; }
+
+  .card.tall .preview { aspect-ratio: 4/3; }
+
+  /* STATS ROW */
+  .stats { display: flex; gap: 40px; margin-top: 48px; padding-top: 32px; border-top: 1px solid var(--border); }
+  .stat .num { font-family: var(--serif); font-size: 36px; color: var(--accent); }
+  .stat .desc { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .1em; margin-top: 4px; }
+
+  /* TOOLBAR (floating) */
+  .toolbar-float {
+    position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%);
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 10px 16px;
+    display: flex; gap: 6px; box-shadow: 0 6px 30px rgba(0,0,0,.08);
+  }
+  .toolbar-float button {
+    width: 40px; height: 40px; border: none; border-radius: 10px; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-secondary); transition: all .15s;
+  }
+  .toolbar-float button.active { background: var(--accent-light); color: var(--accent); }
+  .toolbar-float button:hover:not(.active) { background: rgba(0,0,0,.04); }
+  .toolbar-float button svg { width: 18px; height: 18px; }
+  .toolbar-float .divider { width: 1px; background: var(--border); margin: 4px 6px; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="logo">M</div>
+    <nav>
+      <button class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/></svg></button>
+      <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg></button>
+    </nav>
+    <button style="width:44px;height:44px;border:none;background:transparent;border-radius:12px;cursor:pointer;color:var(--text-secondary);display:flex;align-items:center;justify-content:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></button>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+    <div class="topbar">
+      <span class="date">Feb 24, 2026 · Dashboard</span>
+      <div class="search-box">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input type="text" placeholder="Search resources…">
+      </div>
+    </div>
+
+    <h1 class="hero-title">Your <em>notes</em>,<br>your way.</h1>
+
+    <div class="card-grid">
+      <!-- TALL CARD -->
+      <div class="card tall">
+        <div>
+          <span class="label">Pinned · Note</span>
+          <h3>Organic Chemistry<br>Lecture Notes</h3>
+          <p>Functional groups, reaction mechanisms, and stereochemistry diagrams from Prof. Liu's series.</p>
+        </div>
+        <div class="preview">
+          <div class="strokes">
+            <svg viewBox="0 0 400 225" fill="none">
+              <path d="M30 60 Q80 30 140 55 T260 45 T370 65" stroke="#C8522E" stroke-width="2.2" stroke-linecap="round" opacity=".7"/>
+              <path d="M40 100 Q100 80 160 105 T280 90" stroke="#1A1A1A" stroke-width="1.8" stroke-linecap="round" opacity=".4"/>
+              <path d="M30 140 Q90 120 150 135 T300 130 T380 140" stroke="#1A1A1A" stroke-width="1.5" stroke-linecap="round" opacity=".3"/>
+              <circle cx="200" cy="120" r="35" stroke="#C8522E" stroke-width="1.8" fill="none" opacity=".25"/>
+              <path d="M185 120 L215 120 M200 105 L200 135" stroke="#C8522E" stroke-width="1.5" opacity=".3"/>
+              <path d="M50 180 Q120 165 200 175 T350 170" stroke="#1A1A1A" stroke-width="1.2" stroke-linecap="round" opacity=".2"/>
+            </svg>
+          </div>
+        </div>
+        <button class="btn">Open Note <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button>
+      </div>
+
+      <!-- TOP RIGHT -->
+      <div class="card">
+        <div>
+          <span class="label">Folder · 8 items</span>
+          <h3>Physics 201</h3>
+          <p>Electromagnetism, wave optics, and thermodynamics problem sets.</p>
+        </div>
+        <button class="btn">Browse <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button>
+      </div>
+
+      <!-- BOTTOM RIGHT -->
+      <div class="card">
+        <div>
+          <span class="label">Note · Today</span>
+          <h3>Linear Algebra<br>Quick Reference</h3>
+          <p>Matrix operations, eigenvalues, and vector spaces cheat sheet.</p>
+        </div>
+        <button class="btn">Open Note <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button>
+      </div>
+    </div>
+
+    <!-- STATS -->
+    <div class="stats">
+      <div class="stat"><div class="num">12</div><div class="desc">Notes</div></div>
+      <div class="stat"><div class="num">3</div><div class="desc">Folders</div></div>
+      <div class="stat"><div class="num">47</div><div class="desc">Pages</div></div>
+    </div>
+  </main>
+</div>
+
+<!-- FLOATING TOOLBAR -->
+<div class="toolbar-float">
+  <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg></button>
+  <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 11V6a2 2 0 00-2-2H8a2 2 0 00-2 2v12a2 2 0 002 2h4"/><path d="M15 18h6m-3-3v6"/></svg></button>
+  <div class="divider"></div>
+  <button class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg></button>
+  <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 14.66V20a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2h5.34"/><polygon points="18 2 22 6 12 16 8 16 8 12 18 2"/></svg></button>
+  <div class="divider"></div>
+  <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/></svg></button>
+</div>
+</body>
+</html>

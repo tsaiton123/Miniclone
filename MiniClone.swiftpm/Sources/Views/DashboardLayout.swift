@@ -10,6 +10,8 @@ struct DashboardLayout<Content: View>: View {
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @Environment(\.appTheme) private var appTheme
     @State private var isShowingSearchByDraw = false
+    /// Cached results so we can re-show them when user returns from a note
+    @State private var cachedSearchResults: [SearchByDrawView.DrawSearchResult] = []
     
     init(searchText: Binding<String>, selectedTab: Binding<Int>, noteNames: [String: String] = [:], onSettings: @escaping () -> Void = {}, @ViewBuilder content: () -> Content) {
         self._searchText = searchText
@@ -27,7 +29,6 @@ struct DashboardLayout<Content: View>: View {
                 if horizontalSizeClass != .compact {
                     SidebarView(selectedTab: $selectedTab, onSettings: onSettings)
                     
-                    // Divider or separator line
                     Rectangle()
                         .fill(Color.gray.opacity(0.2))
                         .frame(width: 1)
@@ -35,7 +36,7 @@ struct DashboardLayout<Content: View>: View {
                 }
                 
                 ZStack {
-                    Color(UIColor.systemBackground) // Main content background
+                    appTheme.editorialBackground
                         .ignoresSafeArea()
                     
                     content
@@ -56,27 +57,44 @@ struct DashboardLayout<Content: View>: View {
                     Spacer()
                 }
                 .padding(.vertical, 8)
-                .background(Color(UIColor.secondarySystemBackground))
+                .background(appTheme.sidebarBackground)
             }
         }
         .background(appTheme.chromeBackground)
-        .sheet(isPresented: $isShowingSearchByDraw) {
+        .sheet(isPresented: $isShowingSearchByDraw, onDismiss: {
+            // If user tapped Cancel (not a result), clear cached results
+            // cachedSearchResults is only cleared when Cancel is pressed, not when a result is selected
+        }) {
             SearchByDrawView(
                 noteNames: noteNames,
-                onNavigate: { noteId, pageIndex in
-                    print("[DEBUG-DASHBOARD] onNavigate called: noteId=\(noteId), pageIndex=\(pageIndex)")
+                initialResults: cachedSearchResults,
+                sharedResults: $cachedSearchResults,
+                onSelectResult: { noteId, pageIndex in
+                    print("[DEBUG-DASHBOARD] Result selected: noteId=\(noteId), pageIndex=\(pageIndex)")
+                    
+                    // Dismiss the sheet
                     isShowingSearchByDraw = false
-                    // Post notification to FileSystemView to handle navigation
-                    NotificationCenter.default.post(
-                        name: NSNotification.Name("OpenNoteFromSearch"),
-                        object: nil,
-                        userInfo: ["noteId": noteId, "pageIndex": pageIndex]
-                    )
+                    
+                    // Navigate to the note full-screen via the main NavigationStack
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        NotificationCenter.default.post(
+                            name: NSNotification.Name("OpenNoteFromSearch"),
+                            object: nil,
+                            userInfo: ["noteId": noteId, "pageIndex": pageIndex, "fromSearch": true]
+                        )
+                    }
                 }
             )
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ShowSearchByDraw"))) { _ in
+            cachedSearchResults = []  // Fresh search
             isShowingSearchByDraw = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ReopenSearchResults"))) { _ in
+            // Re-open the search sheet with cached results
+            if !cachedSearchResults.isEmpty {
+                isShowingSearchByDraw = true
+            }
         }
     }
 }
